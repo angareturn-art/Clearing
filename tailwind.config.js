@@ -1,0 +1,76 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+         "on-tertiary-fixed": "#071e27",
+         "surface-container-high": "#e5e9eb",
+         "on-error": "#ffffff",
+         "secondary-fixed-dim": "#ffb693",
+         "secondary-container": "#fe6b00",
+         "tertiary": "#293e47",
+         "surface-container-lowest": "#ffffff",
+         "on-secondary": "#ffffff",
+         "primary-container": "#00529b",
+         "surface-container": "#ebeef0",
+         "primary-fixed": "#d5e3ff",
+         "on-error-container": "#93000a",
+         "on-tertiary": "#ffffff",
+         "on-primary": "#ffffff",
+         "on-secondary-container": "#572000",
+         "surface-variant": "#e0e3e5",
+         "outline-variant": "#c2c6d3",
+         "on-surface": "#181c1e",
+         "on-tertiary-container": "#b3c9d5",
+         "inverse-surface": "#2d3133",
+         "surface-dim": "#d7dadc",
+         "primary": "#003b72",
+         "secondary-fixed": "#ffdbcc",
+         "on-background": "#181c1e",
+         "inverse-primary": "#a6c8ff",
+         "surface-bright": "#f7fafc",
+         "surface-container-low": "#f1f4f6",
+         "surface": "#f7fafc",
+         "tertiary-fixed": "#cfe6f2",
+         "background": "#f7fafc",
+         "surface-container-highest": "#e0e3e5",
+         "on-primary-fixed": "#001c3b",
+         "error": "#ba1a1a",
+         "on-primary-container": "#a5c7ff",
+         "tertiary-fixed-dim": "#b4cad6",
+         "secondary": "#a04100",
+         "on-primary-fixed-variant": "#004787",
+         "on-secondary-fixed-variant": "#7a3000",
+         "tertiary-container": "#40555f",
+         "surface-tint": "#1d5fa8",
+         "inverse-on-surface": "#eef1f3",
+         "outline": "#727782",
+         "error-container": "#ffdad6",
+         "on-tertiary-fixed-variant": "#354a53",
+         "on-surface-variant": "#424751",
+         "primary-fixed-dim": "#a6c8ff",
+         "on-secondary-fixed": "#351000",
+         // Add explicit success/warning states I accidentally used manually
+         "success": "#16a34a",
+         "warning": "#eab308"
+      },
+      borderRadius: {
+        DEFAULT: "0.125rem",
+        lg: "0.25rem",
+        xl: "0.5rem",
+        full: "0.75rem"
+      },
+      fontFamily: {
+        headline: ["Inter", "sans-serif"],
+        body: ["Inter", "sans-serif"],
+        label: ["Space Grotesk", "Inter", "sans-serif"]
+      }
+    },
+  },
+  plugins: [],
+}
