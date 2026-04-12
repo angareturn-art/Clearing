@@ -9,8 +9,7 @@ dist/
 .env.local
 .env.production
 
-# Database (실제 운영 데이터 보호)
-server/construction.db
+# Database WAL 임시 파일만 제외
 server/*.db-wal
 server/*.db-shm
 
