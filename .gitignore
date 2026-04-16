@@ -24,3 +24,8 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# 임시 DB 파일
+temp.db
+*.db-wal
+*.db-shm
