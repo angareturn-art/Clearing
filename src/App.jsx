@@ -10,6 +10,7 @@ import PersonnelManager from './components/PersonnelManager';
 import EmergencyContacts from './components/EmergencyContacts';
 import LoginPage from './components/LoginPage';
 import WorkerManager from './components/WorkerManager';
+import PaymentStatus from './components/PaymentStatus';
 
 dayjs.locale('ko');
 
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'cost',       label: '비용',      icon: 'payments' },
   { id: 'personnel',  label: '인원',      icon: 'badge' },
   { id: 'workers',    label: '작업자',    icon: 'groups' },
+  { id: 'payment_status', label: '기성 현황', icon: 'payments' },
   { id: 'emergency',  label: '비상연락',  icon: 'emergency' },
   { id: 'settings',   label: '기준정보',  icon: 'database' },
 ];
@@ -44,7 +46,9 @@ function App() {
   const [modalType, setModalType] = useState('cleaning');
   const [sessionTimer, setSessionTimer] = useState(null);
   const [formData, setFormData] = useState({
+    record_id: null,
     house_id: '',
+    house_ids: [],
     building_id: '',
     date: dayjs().format('YYYY-MM-DD'),
     time: dayjs().format('HH:mm'),
@@ -52,7 +56,8 @@ function App() {
     phase: 1,
     progress: 50,
     remarks: '',
-    floor: ''
+    floor: '',
+    floors: []
   });
 
   // 세션 타임아웃 (8시간)
@@ -108,42 +113,174 @@ function App() {
   };
 
   const handleCellClick = (data) => {
-    setFormData({
-      ...formData,
-      building_id: data.building_id,
-      house_id: data.house_id,
-      floor: data.floor,
-      date: dayjs().format('YYYY-MM-DD'),
-      time: dayjs().format('HH:mm')
-    });
-    setModalType(viewMode === 'oiling' ? 'oiling' : 'cleaning');
+    let floorInt = data.floor;
+    if (typeof floorInt === 'string') {
+      const upper = floorInt.toUpperCase();
+      if (upper === 'B1') floorInt = -1;
+      else if (upper === 'B2') floorInt = -2;
+      else floorInt = parseInt(floorInt);
+    }
+    const type = viewMode === 'oiling' ? 'oiling' : 'cleaning';
+    let existingRecord = null;
+    if (type === 'oiling') {
+      existingRecord = summary.oiling?.find(r => r.building_id === data.building_id && r.floor === floorInt);
+    } else {
+      existingRecord = summary.cleaning
+        ?.filter(r => r.house_id === data.house_id && r.floor === floorInt)
+        .sort((a, b) => b.phase - a.phase)[0];
+    }
+    
+    if (existingRecord) {
+      setFormData({
+        ...formData,
+        record_id: existingRecord.id,
+        building_id: existingRecord.building_id || data.building_id,
+        house_id: data.house_id,
+        house_ids: [data.house_id.toString()],
+        floor: data.floor,
+        floors: [data.floor.toString()],
+        date: existingRecord.date || dayjs().format('YYYY-MM-DD'),
+        time: existingRecord.time || dayjs().format('HH:mm'),
+        operator: existingRecord.operator || '',
+        phase: existingRecord.phase || 1,
+        progress: existingRecord.progress || 50,
+        remarks: existingRecord.remarks || ''
+      });
+    } else {
+      setFormData({
+        ...formData,
+        record_id: null,
+        building_id: data.building_id,
+        house_id: data.house_id,
+        house_ids: [data.house_id.toString()],
+        floor: data.floor,
+        floors: [data.floor.toString()],
+        date: dayjs().format('YYYY-MM-DD'),
+        time: dayjs().format('HH:mm'),
+        operator: '',
+        phase: 1,
+        progress: 50,
+        remarks: ''
+      });
+    }
+    setModalType(type);
     setShowModal(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    let processedFloor = formData.floor;
-    if (typeof formData.floor === 'string') {
-      const upper = formData.floor.toUpperCase();
-      if (upper === 'B1') processedFloor = -1;
-      else if (upper === 'B2') processedFloor = -2;
-      else processedFloor = parseInt(formData.floor);
+    if (formData.record_id) {
+      let pFloor = formData.floors?.[0] || formData.floor;
+      if (typeof pFloor === 'string') {
+        const upper = pFloor.toUpperCase();
+        if (upper === 'B1') pFloor = -1;
+        else if (upper === 'B2') pFloor = -2;
+        else pFloor = parseInt(pFloor);
+      }
+      
+      await fetch(`${API_URL}/records/${modalType}/${formData.record_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, house_id: formData.house_ids?.[0], floor: pFloor })
+      });
+    } else if (modalType === 'cleaning') {
+      const targetHouses = formData.house_ids?.length > 0 ? formData.house_ids : [formData.house_id];
+      const targetFloors = formData.floors?.length > 0 ? formData.floors : [formData.floor];
+      
+      if (!targetHouses[0] || !targetFloors[0]) {
+        alert('호수와 층수를 각각 1개 이상 선택해주세요.');
+        return;
+      }
+      const promises = targetHouses.flatMap(hId => 
+        targetFloors.map(fStr => {
+          let pFloor = fStr;
+          if (typeof fStr === 'string') {
+            const upper = fStr.toUpperCase();
+            if (upper === 'B1') pFloor = -1;
+            else if (upper === 'B2') pFloor = -2;
+            else pFloor = parseInt(fStr);
+          }
+          return fetch(`${API_URL}/records/${modalType}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...formData, house_id: hId, floor: pFloor })
+          });
+        })
+      );
+      await Promise.all(promises);
+    } else {
+      const targetFloors = formData.floors?.length > 0 ? formData.floors : [formData.floor];
+      if (!targetFloors[0]) {
+        alert('층수를 1개 이상 선택해주세요.');
+        return;
+      }
+      const promises = targetFloors.map(fStr => {
+        let pFloor = fStr;
+        if (typeof fStr === 'string') {
+          const upper = fStr.toUpperCase();
+          if (upper === 'B1') pFloor = -1;
+          else if (upper === 'B2') pFloor = -2;
+          else pFloor = parseInt(fStr);
+        }
+        return fetch(`${API_URL}/records/${modalType}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, floor: pFloor })
+        });
+      });
+      await Promise.all(promises);
     }
-    await fetch(`${API_URL}/records/${modalType}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...formData, floor: processedFloor })
-    });
+
     setShowModal(false);
     fetchSummary();
     if (activeTab === 'records') fetchRecords();
   };
 
+  const handleDeleteRecord = async () => {
+    if (!formData.record_id) return;
+    if (!window.confirm('정말 삭제하시겠습니까?')) return;
+    try {
+      const res = await fetch(`${API_URL}/records/${modalType}/${formData.record_id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('서버 응답 오류');
+      alert('성공적으로 삭제되었습니다.');
+      setShowModal(false);
+      await fetchSummary();
+      if (activeTab === 'records') await fetchRecords();
+    } catch (err) {
+      alert('삭제 처리 중 에러가 발생했습니다: ' + err.message);
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm('정말 삭제하시겠습니까?')) return;
-    await fetch(`${API_URL}/records/${modalType}/${id}`, { method: 'DELETE' });
-    fetchRecords();
-    fetchSummary();
+    try {
+      const res = await fetch(`${API_URL}/records/${modalType}/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('서버 응답 오류');
+      alert('데이터가 성공적으로 삭제되었습니다.');
+      await fetchRecords();
+      await fetchSummary();
+    } catch (err) {
+      alert('삭제 중 오류가 발생했습니다: ' + err.message);
+    }
+  };
+
+  const handleEditRecordFromTable = (r) => {
+    setFormData({
+      record_id: r.id,
+      building_id: r.building_id,
+      house_id: r.house_id || '',
+      house_ids: r.house_id ? [r.house_id.toString()] : [],
+      floor: r.floor || '',
+      floors: r.floor ? [r.floor.toString()] : [],
+      date: r.date || dayjs().format('YYYY-MM-DD'),
+      time: r.time || dayjs().format('HH:mm'),
+      operator: r.operator || '',
+      phase: r.phase || 1,
+      progress: r.progress || 50,
+      remarks: r.remarks || r.memo || ''
+    });
+    // modalType is already correct since we are currently viewing this type's table
+    setShowModal(true);
   };
 
   const formatFloorDisplay = (floor) => {
@@ -248,6 +385,7 @@ function App() {
         {activeTab === 'cost' && <CostManager />}
         {activeTab === 'personnel' && <PersonnelManager />}
         {activeTab === 'workers' && <WorkerManager />}
+        {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} />}
         {activeTab === 'emergency' && <EmergencyContacts />}
 
         {activeTab === 'records' && (
@@ -296,8 +434,9 @@ function App() {
                         {modalType === 'lifting' && <span>{r.memo}</span>}
                       </td>
                       <td className="py-4 px-4 font-body text-sm text-on-surface-variant">{r.remarks || r.memo}</td>
-                      <td className="py-4 px-4 text-right">
-                        <span className="material-symbols-outlined text-outline cursor-pointer hover:text-error transition-colors" onClick={() => handleDelete(r.id)}>delete</span>
+                      <td className="py-4 px-4 text-right flex justify-end gap-3">
+                        <span className="material-symbols-outlined text-outline cursor-pointer hover:text-primary transition-colors" title="수정" onClick={() => handleEditRecordFromTable(r)}>edit</span>
+                        <span className="material-symbols-outlined text-outline cursor-pointer hover:text-error transition-colors" title="삭제" onClick={() => handleDelete(r.id)}>delete</span>
                       </td>
                     </tr>
                   ))}
@@ -341,29 +480,84 @@ function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4">
                   <div>
                     <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">동 선택</label>
-                    <select required className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.building_id} onChange={(e) => setFormData({ ...formData, building_id: e.target.value })}>
+                    <select required className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.building_id} onChange={(e) => setFormData({ ...formData, building_id: e.target.value, house_id: '', house_ids: [] })}>
                       <option value="">빌딩 선택</option>
                       {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
-                  {modalType !== 'lifting' && (
+                  {modalType === 'cleaning' && formData.building_id && (
                     <div>
-                      <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">호수 선택</label>
-                      <select required className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.house_id} onChange={(e) => setFormData({ ...formData, house_id: e.target.value })}>
-                        <option value="">호수 선택</option>
-                        {buildings.find(b => b.id == formData.building_id)?.houses.map(h => <option key={h.id} value={h.id}>{h.ho}</option>)}
-                      </select>
+                      <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">호수 다중 선택 (여럿 선택 가능)</label>
+                      <div className="flex flex-wrap gap-2 p-2 bg-surface-container-low rounded-lg border border-outline-variant/30">
+                        {buildings.find(b => b.id == formData.building_id)?.houses.map(h => (
+                          <label key={h.id} className={`cursor-pointer px-4 py-2 rounded-full text-xs font-bold transition-all select-none ${formData.house_ids?.includes(h.id.toString()) ? 'bg-primary text-white shadow-md' : 'bg-surface text-on-surface-variant border border-outline-variant/50 hover:bg-surface-container-high'}`}>
+                            <input 
+                              type="checkbox" 
+                              className="hidden" 
+                              checked={formData.house_ids?.includes(h.id.toString()) || false}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setFormData(prev => {
+                                  const ids = prev.house_ids || [];
+                                  return { 
+                                    ...prev, 
+                                    house_ids: checked ? [...ids, h.id.toString()] : ids.filter(id => id !== h.id.toString())
+                                  };
+                                });
+                              }}
+                            />
+                            {h.ho}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
 
-                <div>
-                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">층수 (B1, B2 입력 가능)</label>
-                  <input required type="text" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" placeholder="예: 15 또는 B1" value={formData.floor} onChange={(e) => setFormData({ ...formData, floor: e.target.value })} />
-                </div>
+                {formData.building_id && (
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">층수 {formData.record_id ? '선택 (단일 수정모드)' : '다중 선택 (여럿 선택 가능)'}</label>
+                    <div className="flex flex-wrap gap-2 p-2 bg-surface-container-low rounded-lg border border-outline-variant/30">
+                      {(() => {
+                        const b = buildings.find(b => b.id == formData.building_id);
+                        if (!b) return null;
+                        const maxFloors = Math.max(...b.houses.map(h => h.floors), 1);
+                        const basements = Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i));
+                        const grounds = Array.from({ length: maxFloors }).map((_, i) => i + 1);
+                        const allFloors = [...basements, ...grounds].reverse(); // top floors first looks nicer
+                        
+                        return allFloors.map(floorInt => {
+                          const floorStr = floorInt === -1 ? 'B1' : floorInt === -2 ? 'B2' : (floorInt < 0 ? `B${Math.abs(floorInt)}` : floorInt.toString());
+                          const isSelected = formData.floors?.includes(floorStr);
+                          return (
+                            <label key={floorInt} className={`cursor-pointer min-w-10 h-8 px-2 flex items-center justify-center rounded text-xs font-bold transition-all select-none ${isSelected ? 'bg-primary text-white shadow-md' : 'bg-surface text-on-surface-variant border border-outline-variant/50 hover:bg-surface-container-high'}`}>
+                              <input 
+                                type="checkbox" 
+                                className="hidden" 
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setFormData(prev => {
+                                    if (prev.record_id) return { ...prev, floors: [floorStr] }; // single select in edit mode
+                                    const fs = prev.floors || [];
+                                    return { 
+                                      ...prev, 
+                                      floors: checked ? [...fs, floorStr] : fs.filter(f => f !== floorStr)
+                                    };
+                                  });
+                                }}
+                              />
+                              {floorStr}
+                            </label>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">날짜</label>
@@ -408,10 +602,21 @@ function App() {
                   <textarea rows="2" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-body py-2" placeholder="메모..." value={formData.remarks || formData.memo || ''} onChange={(e) => setFormData({ ...formData, remarks: e.target.value, memo: e.target.value })} />
                 </div>
 
-                <div className="pt-2">
-                  <button type="submit" className="w-full bg-gradient-to-br from-primary to-primary-container text-white py-4 rounded font-label font-bold text-sm uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all flex items-center justify-center gap-2">
-                    <span className="material-symbols-outlined text-sm">save</span> 저장하기
-                  </button>
+                <div className="pt-2 flex gap-3">
+                  {formData.record_id ? (
+                    <>
+                      <button type="button" onClick={handleDeleteRecord} className="flex-1 bg-surface-container-high text-error py-4 rounded font-label font-bold text-sm uppercase tracking-widest hover:bg-error hover:text-white transition-all flex items-center justify-center gap-2">
+                        <span className="material-symbols-outlined text-sm">delete</span> 삭제
+                      </button>
+                      <button type="submit" className="flex-1 bg-gradient-to-br from-primary to-primary-container text-white py-4 rounded font-label font-bold text-sm uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all flex items-center justify-center gap-2">
+                        <span className="material-symbols-outlined text-sm">edit</span> 수정하기
+                      </button>
+                    </>
+                  ) : (
+                    <button type="submit" className="w-full bg-gradient-to-br from-primary to-primary-container text-white py-4 rounded font-label font-bold text-sm uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all flex items-center justify-center gap-2">
+                      <span className="material-symbols-outlined text-sm">save</span> 저장하기
+                    </button>
+                  )}
                 </div>
               </form>
             </div>

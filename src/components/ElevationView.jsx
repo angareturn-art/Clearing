@@ -14,6 +14,16 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
     };
   };
 
+  const BASE_LIMITS = {
+    oiling: { '1동': 7, '2동': 7, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
+    cleaning: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 }
+  };
+
+  const getLimit = (buildingName) => {
+    const mode = viewMode === 'oiling' ? 'oiling' : 'cleaning';
+    return BASE_LIMITS[mode][buildingName] || 0;
+  };
+
   const getCellClasses = (status, isBasement = false) => {
     let classes = "flex items-center justify-center rounded-sm transition-all duration-300 relative group-hover:scale-105 ";
     classes += isBasement ? "w-10 h-8 font-label text-[10px] " : "w-10 h-6 cursor-pointer font-label text-[10px] ";
@@ -81,59 +91,123 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
                   <h3 className="font-headline font-black tracking-tight text-xl text-primary">{b.name}</h3>
                 </div>
                 <span className="font-label text-[10px] bg-primary/10 text-primary px-2 py-1 rounded-sm uppercase tracking-wider font-bold">
-                  {b.houses.length} Units
+                  {viewMode === 'oiling' ? '층별 통합 관리' : `${b.houses.length} Units`}
                 </span>
               </div>
               
-              <div className="flex gap-2 items-end justify-center overflow-x-auto pb-2 no-scrollbar relative z-10">
-                {b.houses.map(house => (
-                  <div key={house.id} className="flex flex-col-reverse gap-1 items-center group">
+              {viewMode === 'oiling' ? (
+                <div className="flex justify-center pb-2 relative z-10 w-full">
+                  <div className="flex flex-col-reverse gap-1 items-center group w-full max-w-[120px]">
                     <div className="text-center font-label text-[10px] font-bold text-on-surface-variant mt-2 mb-1 w-full border-t border-outline-variant/20 pt-1">
-                      {house.ho.replace('호', '')}
+                      해당 동 전체
                     </div>
 
-                    {/* Basement */}
+                    {/* Basement (Oiling) */}
                     {Array.from({ length: b.basement_count || 0 }).map((_, i) => {
-                      const floor = -(i + 1);
-                      const status = getStatus(house.id, floor);
-                      const label = floor === -1 ? house.basement_label_b1 : house.basement_label_b2;
+                      const floor = -(b.basement_count - i);
+                      const status = { isOiled: !!summary.oiling?.find(r => r.building_id === b.id && r.floor === floor) };
+                      const label = floor === -1 ? 'B1' : floor === -2 ? 'B2' : `B${Math.abs(floor)}`;
                       const { classes, icon } = getCellClasses(status, true);
                       
                       return (
                         <div 
-                          key={`b-${floor}`}
-                          className={classes}
-                          title={`${house.ho} ${label || (floor === -1 ? 'B1' : 'B2')}`}
-                          onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: floor === -1 ? 'B1' : 'B2' })}
+                          key={`total-b-${floor}`}
+                          className={`${classes} w-full`}
+                          title={`${b.name} ${label}`}
+                          onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: `B${Math.abs(floor)}` })}
                         >
                           {icon && <span className="material-symbols-outlined text-sm font-bold opacity-30 absolute inset-0 m-auto">{icon}</span>}
-                          <span className="z-10 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-center px-[2px] opacity-90">{label || (floor === -1 ? 'B1' : 'B2')}</span>
+                          <span className="z-10 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-center px-[2px] opacity-90">{label}</span>
                         </div>
                       );
                     })}
 
                     <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1"></div>
 
-                    {/* Ground */}
-                    {Array.from({ length: house.floors }).map((_, i) => {
+                    {/* Ground (Oiling) */}
+                    {Array.from({ length: Math.max(...b.houses.map(h => h.floors), 0) }).map((_, i) => {
                       const floor = i + 1;
-                      const status = getStatus(house.id, floor);
+                      const status = { isOiled: !!summary.oiling?.find(r => r.building_id === b.id && r.floor === floor) };
                       const { classes, icon } = getCellClasses(status, false);
+                      const limit = getLimit(b.name);
                       
                       return (
-                        <div 
-                          key={floor}
-                          className={classes}
-                          title={`${b.name} ${floor}층 ${house.ho}`}
-                          onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: floor.toString() })}
-                        >
-                          {icon ? <span className="material-symbols-outlined text-sm">{icon}</span> : <span className="opacity-40">{floor}</span>}
-                        </div>
+                        <React.Fragment key={`total-${floor}`}>
+                          {/* Divider Line */}
+                          {floor === limit + 1 && (
+                            <div className="w-full h-[2px] bg-error shadow-[0_0_8px_rgba(255,0,0,0.5)] my-[1px] relative z-20">
+                              <span className="absolute -right-12 top-1/2 -translate-y-1/2 text-[8px] font-bold text-error whitespace-nowrap">기성 기준</span>
+                            </div>
+                          )}
+                          <div 
+                            className={`${classes} w-full`}
+                            title={`${b.name} ${floor}층`}
+                            onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: floor.toString() })}
+                          >
+                            {icon ? <span className="material-symbols-outlined text-sm">{icon}</span> : <span className="opacity-40">{floor}</span>}
+                          </div>
+                        </React.Fragment>
                       );
                     })}
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="flex gap-2 items-end justify-center overflow-x-auto pb-2 no-scrollbar relative z-10">
+                  {b.houses.map(house => (
+                    <div key={house.id} className="flex flex-col-reverse gap-1 items-center group">
+                      <div className="text-center font-label text-[10px] font-bold text-on-surface-variant mt-2 mb-1 w-full border-t border-outline-variant/20 pt-1">
+                        {house.ho.replace('호', '')}
+                      </div>
+
+                      {/* Basement */}
+                      {Array.from({ length: b.basement_count || 0 }).map((_, i) => {
+                        const floor = -(b.basement_count - i);
+                        const status = getStatus(house.id, floor);
+                        const label = floor === -1 ? house.basement_label_b1 : floor === -2 ? house.basement_label_b2 : `B${Math.abs(floor)}`;
+                        const { classes, icon } = getCellClasses(status, true);
+                        
+                        return (
+                          <div 
+                            key={`b-${floor}`}
+                            className={classes}
+                            title={`${house.ho} ${label}`}
+                            onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: `B${Math.abs(floor)}` })}
+                          >
+                            {icon && <span className="material-symbols-outlined text-sm font-bold opacity-30 absolute inset-0 m-auto">{icon}</span>}
+                            <span className="z-10 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-center px-[2px] opacity-90">{label}</span>
+                          </div>
+                        );
+                      })}
+
+                      <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1"></div>
+
+                      {/* Ground */}
+                      {Array.from({ length: house.floors }).map((_, i) => {
+                        const floor = i + 1;
+                        const status = getStatus(house.id, floor);
+                        const { classes, icon } = getCellClasses(status, false);
+                        const limit = getLimit(b.name);
+                        
+                        return (
+                          <React.Fragment key={floor}>
+                            {/* Divider Line */}
+                            {floor === limit + 1 && (
+                              <div className="w-full h-[2px] bg-error shadow-[0_0_4px_rgba(255,0,0,0.5)] my-[1px] relative z-20"></div>
+                            )}
+                            <div 
+                              className={classes}
+                              title={`${b.name} ${floor}층 ${house.ho}`}
+                              onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: floor.toString() })}
+                            >
+                              {icon ? <span className="material-symbols-outlined text-sm">{icon}</span> : <span className="opacity-40">{floor}</span>}
+                            </div>
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

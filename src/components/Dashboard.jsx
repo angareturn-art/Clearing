@@ -60,30 +60,49 @@ const Dashboard = ({ buildings, summary }) => {
 
   // KPI 계산
   const totalUnits = buildings.reduce((acc, b) => acc + b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0), 0);
-  const oiledCount = new Set(summary.oiling?.map(r => `${r.house_id}-${r.floor}`)).size;
+  const oiledCount = new Set(summary.oiling?.map(r => `${r.building_id}-${r.floor}`)).size;
   const cleanedCount = summary.cleaning?.filter(r => r.progress === 100).length || 0;
   const inProgressCount = summary.cleaning?.filter(r => r.progress < 100).length || 0;
   const liftingCount = summary.lifting?.length || 0;
 
   // 동별 진행률
   const buildingProgress = buildings.map(b => {
-    const totalFloors = b.houses.reduce((a, h) => a + h.floors, 0);
-    const oiledFloors = b.houses.reduce((a, h) => {
-      return a + Array.from({ length: h.floors }, (_, i) => i + 1).filter(f =>
-        summary.oiling?.some(r => r.house_id === h.id && r.floor === f)
-      ).length;
-    }, 0);
+    // 1. 해당 동의 총 셀 개수 (청소용 모수 = 모든 호수의 지상층 + 지하층 합산)
+    const totalFloors = b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0);
+    
+    // 박리제칠용 모수 (순수 건물의 최대 층수 합산)
+    const maxGroundFloor = Math.max(...b.houses.map(h => h.floors), 0);
+    const totalFloorsForOiling = maxGroundFloor + (b.basement_count || 0);
+
+    // 2. 박리제칠 진행 개수 (지하, 지상 모두 확인) - 호수 무관, 층 단위
+    const basements = Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i));
+    const grounds = Array.from({ length: maxGroundFloor }).map((_, i) => i + 1);
+    const allUniqueFloors = [...basements, ...grounds];
+    
+    const oiledFloors = allUniqueFloors.filter(f =>
+      summary.oiling?.some(r => r.building_id === b.id && r.floor === f)
+    ).length;
+
+    // 3. 청소 진행 개수 (50%는 0.5세대, 100%는 1세대로 계산)
     const cleanedFloors = b.houses.reduce((a, h) => {
-      return a + Array.from({ length: h.floors }, (_, i) => i + 1).filter(f =>
-        summary.cleaning?.some(r => r.house_id === h.id && r.floor === f && r.progress === 100)
-      ).length;
+      const hBasements = Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i));
+      const hGrounds = Array.from({ length: h.floors }).map((_, i) => i + 1);
+      const hAllFloors = [...hBasements, ...hGrounds];
+      
+      return a + hAllFloors.reduce((sum, f) => {
+        const cellRecords = summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f) || [];
+        const maxProg = cellRecords.length > 0 ? Math.max(...cellRecords.map(r => r.progress || 0)) : 0;
+        return sum + (maxProg / 100);
+      }, 0);
     }, 0);
+
     return {
       name: b.name,
-      totalFloors,
+      totalFloors, // for UI display
+      totalFloorsForOiling,
       oiledFloors,
-      cleanedFloors,
-      oilRate: totalFloors > 0 ? Math.round((oiledFloors / totalFloors) * 100) : 0,
+      cleanedFloors: Number(cleanedFloors.toFixed(1)), // 소수점 1자리 통일
+      oilRate: totalFloorsForOiling > 0 ? Math.round((oiledFloors / totalFloorsForOiling) * 100) : 0,
       cleanRate: totalFloors > 0 ? Math.round((cleanedFloors / totalFloors) * 100) : 0,
     };
   });

@@ -142,6 +142,15 @@ db.exec(`
     changed_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS worker_monthly_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    worker_name TEXT NOT NULL,
+    month TEXT NOT NULL,
+    unit_price INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(worker_name, month)
+  );
+
   CREATE TABLE IF NOT EXISTS workers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -320,10 +329,9 @@ app.post('/api/master/add-building', (req, res) => {
 // ── 요약 (대시보드)
 app.get('/api/status/summary', (req, res) => {
   const oiling = db.prepare(`
-    SELECT o.*, b.name as building_name, h.ho 
+    SELECT o.*, b.name as building_name 
     FROM oiling_records o
     JOIN buildings b ON b.id=o.building_id
-    LEFT JOIN houses h ON h.id=o.house_id
     ORDER BY o.date DESC
   `).all();
   
@@ -351,10 +359,10 @@ app.get('/api/status/summary', (req, res) => {
   
   app.get(`/api/records/${type}`, (req, res) => {
     const { date, buildingId } = req.query;
-    let query = `SELECT r.*, b.name as building_name${type !== 'lifting' ? ', h.ho' : ''}
+    let query = `SELECT r.*, b.name as building_name${type === 'cleaning' ? ', h.ho' : ''}
       FROM ${table} r
       JOIN buildings b ON b.id=r.building_id
-      ${type !== 'lifting' ? 'LEFT JOIN houses h ON h.id=r.house_id' : ''}
+      ${type === 'cleaning' ? 'LEFT JOIN houses h ON h.id=r.house_id' : ''}
       WHERE 1=1`;
     const params = [];
     if (date) { query += ' AND r.date=?'; params.push(date); }
@@ -368,13 +376,29 @@ app.get('/api/status/summary', (req, res) => {
     let stmt;
     if (type === 'oiling') {
       stmt = db.prepare('INSERT INTO oiling_records (building_id,house_id,floor,operator,date,time,remarks) VALUES (?,?,?,?,?,?,?)');
-      stmt.run(d.building_id, d.house_id, d.floor, d.operator, d.date, d.time, d.remarks);
+      stmt.run(d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks);
     } else if (type === 'cleaning') {
       stmt = db.prepare('INSERT INTO cleaning_records (building_id,house_id,floor,phase,progress,operator,date,time,remarks,photo) VALUES (?,?,?,?,?,?,?,?,?,?)');
       stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null);
     } else {
       stmt = db.prepare('INSERT INTO lifting_records (building_id,floor,memo,status,date,checklist) VALUES (?,?,?,?,?,?)');
       stmt.run(d.building_id, d.floor, d.memo, d.status || 'planned', d.date, JSON.stringify(d.checklist || []));
+    }
+    res.json({ success: true });
+  });
+
+  app.put(`/api/records/${type}/:id`, (req, res) => {
+    const d = req.body;
+    let stmt;
+    if (type === 'oiling') {
+      stmt = db.prepare('UPDATE oiling_records SET building_id=?, house_id=?, floor=?, operator=?, date=?, time=?, remarks=? WHERE id=?');
+      stmt.run(d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks, req.params.id);
+    } else if (type === 'cleaning') {
+      stmt = db.prepare('UPDATE cleaning_records SET building_id=?, house_id=?, floor=?, phase=?, progress=?, operator=?, date=?, time=?, remarks=?, photo=? WHERE id=?');
+      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null, req.params.id);
+    } else {
+      stmt = db.prepare('UPDATE lifting_records SET building_id=?, floor=?, memo=?, status=?, date=?, checklist=? WHERE id=?');
+      stmt.run(d.building_id, d.floor, d.memo, d.status || 'planned', d.date, JSON.stringify(d.checklist || []), req.params.id);
     }
     res.json({ success: true });
   });
@@ -504,6 +528,24 @@ app.put('/api/workers/:id', (req, res) => {
 
 app.delete('/api/workers/:id', (req, res) => {
   db.prepare('DELETE FROM workers WHERE id=?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ── 단가 관리
+app.get('/api/worker-prices', (req, res) => {
+  const { month } = req.query;
+  const query = 'SELECT * FROM worker_monthly_prices WHERE month = ?';
+  res.json(db.prepare(query).all(month));
+});
+
+app.post('/api/worker-prices', (req, res) => {
+  const { worker_name, month, unit_price } = req.body;
+  const stmt = db.prepare(`
+    INSERT INTO worker_monthly_prices (worker_name, month, unit_price)
+    VALUES (?, ?, ?)
+    ON CONFLICT(worker_name, month) DO UPDATE SET unit_price=excluded.unit_price
+  `);
+  stmt.run(worker_name, month, unit_price);
   res.json({ success: true });
 });
 

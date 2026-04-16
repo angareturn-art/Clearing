@@ -19,6 +19,8 @@ export default function PersonnelManager() {
   const [selectedNames, setSelectedNames] = useState([]);
   const [selectedCalDate, setSelectedCalDate] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [prices, setPrices] = useState([]); // { worker_name, unit_price }
+  const [editingPrice, setEditingPrice] = useState(null); // { name, price }
 
   const fetchRecords = useCallback(async () => {
     const res = await fetch(`${API_URL}/personnel?month=${currentMonth}`);
@@ -32,7 +34,13 @@ export default function PersonnelManager() {
     setWorkers(data || []);
   };
 
-  useEffect(() => { fetchRecords(); }, [fetchRecords]);
+  const fetchPrices = useCallback(async () => {
+    const res = await fetch(`${API_URL}/worker-prices?month=${currentMonth}`);
+    const data = await res.json();
+    setPrices(data || []);
+  }, [currentMonth]);
+
+  useEffect(() => { fetchRecords(); fetchPrices(); }, [fetchRecords, fetchPrices]);
   useEffect(() => { fetchWorkers(); }, []);
 
   const openAdd = (date = dayjs().format('YYYY-MM-DD')) => {
@@ -80,6 +88,26 @@ export default function PersonnelManager() {
     fetchRecords();
   };
 
+  const handlePriceSave = async (worker_name, unit_price) => {
+    await fetch(`${API_URL}/worker-prices`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worker_name, month: currentMonth, unit_price: parseInt(unit_price) || 0 })
+    });
+    setEditingPrice(null);
+    fetchPrices();
+  };
+
+  const getWeight = (ot_h, night_h) => {
+    // 사용자 정의 가중치 계산: OT(1h=0.1), 야간(2h=0.5, 4h=1.0)
+    // 여기서는 ot_hours와 night_hours를 합산하여 판별하거나 개별적으로 처리 가능
+    // 요청 사항: OT 0.1, 야간 6시 0.1, 7시 0.5, 9시 1.0
+    const total_extra = (ot_h || 0) + (night_h || 0);
+    if (total_extra >= 4) return 1.0;
+    if (total_extra >= 2) return 0.5;
+    if (total_extra >= 1) return 0.1;
+    return 0;
+  };
+
   const toggleName = (name) => setSelectedNames(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
   const toggleAll = () => { if (selectedNames.length === workers.length) setSelectedNames([]); else setSelectedNames(workers.map(w => w.name)); };
   const toggleTeam = (team) => {
@@ -90,10 +118,19 @@ export default function PersonnelManager() {
   };
 
   const personStats = records.reduce((acc, r) => {
-    if (!acc[r.name]) acc[r.name] = { name: r.name, total_work: 0, total_ot: 0, total_night: 0, days: 0 };
+    if (!acc[r.name]) acc[r.name] = { 
+      name: r.name, total_work: 0, total_ot: 0, total_night: 0, 
+      days: 0, ot_days: 0, night_days: 0, total_weight: 0 
+    };
     acc[r.name].total_work += r.work_hours || 0;
     acc[r.name].total_ot += r.ot_hours || 0;
     acc[r.name].total_night += r.night_hours || 0;
+    
+    if (r.ot_hours > 0) acc[r.name].ot_days += 1;
+    if (r.night_hours > 0) acc[r.name].night_days += 1;
+    
+    // 가중치 합산: 실제 근무 비례(일반인 경우 1.0) + 추가 가중치(0.1, 0.5, 1.0)
+    acc[r.name].total_weight += (r.work_hours / 8) + getWeight(r.ot_hours, r.night_hours);
     acc[r.name].days += 1;
     return acc;
   }, {});
@@ -153,34 +190,56 @@ export default function PersonnelManager() {
             <table className="w-full text-left">
               <thead>
                 <tr>
-                  {['작업자', '근무일', '기본공수', 'OT', '야간', '공수율'].map(h => (
+                  {['작업자', '근무일', '기본공수', 'OT / 야간 (건수/시간)', '가산공수', '단가 (일당)', '총액'].map(h => (
                     <th key={h} className="py-3 px-4 font-label text-[10px] uppercase tracking-widest text-outline">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-variant/50">
-                {Object.values(personStats).map(p => (
-                  <tr key={p.name} className="hover:bg-surface-container-low transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-headline font-black text-sm flex-shrink-0 ${avatarColor(p.name)}`}>{p.name[0]}</div>
-                        <span className="font-label font-bold text-primary">{p.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-body">{p.days}일</td>
-                    <td className="py-3 px-4 font-body">{p.total_work}h</td>
-                    <td className="py-3 px-4 font-body text-secondary">{p.total_ot > 0 ? `${p.total_ot}h` : '-'}</td>
-                    <td className="py-3 px-4 font-body text-outline">{p.total_night > 0 ? `${p.total_night}h` : '-'}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-surface-container rounded-full overflow-hidden min-w-16">
-                          <div className="h-full bg-primary rounded-full transition-all duration-700" style={{ width: `${(p.days / maxDays) * 100}%` }}></div>
+                {Object.values(personStats).map(p => {
+                  const priceRec = prices.find(pr => pr.worker_name === p.name);
+                  const price = priceRec ? priceRec.unit_price : 0;
+                  const totalAmount = Math.round(p.total_weight * price);
+                  
+                  return (
+                    <tr key={p.name} className="hover:bg-surface-container-low transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-headline font-black text-sm flex-shrink-0 ${avatarColor(p.name)}`}>{p.name[0]}</div>
+                          <span className="font-label font-bold text-primary">{p.name}</span>
                         </div>
-                        <span className="font-label text-xs text-primary font-bold whitespace-nowrap">{p.days}일</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-3 px-4 font-body">{p.days}일</td>
+                      <td className="py-3 px-4 font-body">{(p.total_work / 8).toFixed(1)}공수</td>
+                      <td className="py-3 px-4 font-body">
+                        <div className="space-y-1">
+                          {p.ot_days > 0 && <p className="text-secondary text-[11px] font-bold">OT: {p.ot_days}건 ({p.total_ot}h)</p>}
+                          {p.night_days > 0 && <p className="text-outline text-[11px] font-bold">야간: {p.night_days}건 ({p.total_night}h)</p>}
+                          {p.ot_days === 0 && p.night_days === 0 && <span className="text-outline-variant">-</span>}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-body text-primary font-bold">{(p.total_weight - p.days).toFixed(1)}</td>
+                      <td className="py-3 px-4 text-sm">
+                        {editingPrice?.name === p.name ? (
+                          <div className="flex items-center gap-1">
+                            <input autoFocus type="number" className="w-24 bg-surface border rounded px-2 py-1 text-xs" 
+                              value={editingPrice.price} onChange={e => setEditingPrice({...editingPrice, price: e.target.value})} />
+                            <button onClick={() => handlePriceSave(p.name, editingPrice.price)} className="text-success"><span className="material-symbols-outlined text-sm">check</span></button>
+                            <button onClick={() => setEditingPrice(null)} className="text-error"><span className="material-symbols-outlined text-sm">close</span></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 group/price cursor-pointer" onClick={() => setEditingPrice({ name: p.name, price })}>
+                            <span className="font-label font-bold text-on-surface">{price.toLocaleString()}원</span>
+                            <span className="material-symbols-outlined text-[12px] text-outline opacity-0 group-hover/price:opacity-100 transition-opacity">edit</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-headline font-black text-primary text-base">
+                        {totalAmount.toLocaleString()}원
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -224,9 +283,20 @@ export default function PersonnelManager() {
                   </button>
                 </div>
                 <div className="space-y-0.5">
-                  {names.slice(0, 3).map(name => (
-                    <div key={name} className={`text-[9px] px-1.5 py-0.5 rounded truncate font-label font-bold ${avatarColor(name)} text-white`}>{name}</div>
-                  ))}
+                  {names.slice(0, 3).map(name => {
+                    const personDayRecs = dayRecs.filter(r => r.name === name);
+                    const hasOT = personDayRecs.some(r => r.ot_hours > 0);
+                    const hasNight = personDayRecs.some(r => r.night_hours > 0);
+                    return (
+                      <div key={name} className={`text-[9px] px-1.5 py-0.5 rounded truncate font-label font-bold ${avatarColor(name)} text-white flex items-center justify-between gap-1`}>
+                        <span>{name}</span>
+                        <div className="flex gap-0.5">
+                          {hasOT && <span className="text-[7px] bg-white/20 px-0.5 rounded">OT</span>}
+                          {hasNight && <span className="text-[7px] bg-white/20 px-0.5 rounded">야</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
                   {names.length > 3 && <div className="text-[9px] text-outline font-label">+{names.length - 3}명</div>}
                 </div>
               </div>
@@ -268,8 +338,8 @@ export default function PersonnelManager() {
                         <p className="font-label font-bold text-on-surface">{r.name}</p>
                         <div className="flex gap-3 mt-0.5">
                           <span className="font-label text-[10px] text-outline">기본 {r.work_hours}h</span>
-                          {r.ot_hours > 0 && <span className="font-label text-[10px] text-secondary">OT {r.ot_hours}h</span>}
-                          {r.night_hours > 0 && <span className="font-label text-[10px] text-outline">야간 {r.night_hours}h</span>}
+                          {r.ot_hours > 0 && <span className="font-label text-[10px] text-secondary">OT 1건 ({r.ot_hours}h)</span>}
+                          {r.night_hours > 0 && <span className="font-label text-[10px] text-outline">야간 1건 ({r.night_hours}h)</span>}
                           {r.memo && <span className="font-label text-[10px] text-outline italic">{r.memo}</span>}
                         </div>
                       </div>
@@ -300,7 +370,7 @@ export default function PersonnelManager() {
         <table className="w-full text-left">
           <thead className="bg-surface-dim/20">
             <tr>
-              {['날짜', '작업자', '기본공수', 'OT', '야간', '메모', '관리'].map(h => (
+              {['날짜', '작업자', '기본공수', 'OT / 야간', '메모', '관리'].map(h => (
                 <th key={h} className="py-3 px-4 font-label text-[10px] uppercase tracking-widest text-outline">{h}</th>
               ))}
             </tr>
@@ -315,9 +385,14 @@ export default function PersonnelManager() {
                     <span className="font-label font-bold text-primary">{r.name}</span>
                   </div>
                 </td>
-                <td className="py-3 px-4 font-body text-sm">{r.work_hours}h</td>
-                <td className="py-3 px-4 font-body text-sm text-secondary">{r.ot_hours > 0 ? `${r.ot_hours}h` : '-'}</td>
-                <td className="py-3 px-4 font-body text-sm text-outline">{r.night_hours > 0 ? `${r.night_hours}h` : '-'}</td>
+                <td className="py-3 px-4 font-body text-sm">{(r.work_hours / 8).toFixed(1)}공수</td>
+                <td className="py-3 px-4 font-body text-sm">
+                  <div className="flex flex-col">
+                    {r.ot_hours > 0 && <span className="text-secondary font-bold">OT 1건 ({r.ot_hours}h)</span>}
+                    {r.night_hours > 0 && <span className="text-outline font-bold">야간 1건 ({r.night_hours}h)</span>}
+                    {r.ot_hours === 0 && r.night_hours === 0 && '-'}
+                  </div>
+                </td>
                 <td className="py-3 px-4 font-body text-sm text-on-surface-variant">{r.memo || '-'}</td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
