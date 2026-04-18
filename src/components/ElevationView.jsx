@@ -1,22 +1,32 @@
 import React from 'react';
 
+// "2026-04-16" → "4/16"
+const formatDate = (dateStr) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
 const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) => {
+
   const getStatus = (houseId, floor) => {
     const oiling = summary.oiling?.find(r => r.house_id === houseId && r.floor === floor);
     const cleaning = summary.cleaning
       ?.filter(r => r.house_id === houseId && r.floor === floor)
       .sort((a, b) => b.phase - a.phase)[0];
-    
     return {
-      isOiled: !!oiling,
-      phase: cleaning ? cleaning.phase : 0,
-      progress: cleaning ? cleaning.progress : 0,
+      isOiled:      !!oiling,
+      oilingDate:   oiling?.date || null,
+      phase:        cleaning ? cleaning.phase : 0,
+      progress:     cleaning ? cleaning.progress : 0,
+      cleaningDate: cleaning?.date || null,
     };
   };
 
   const BASE_LIMITS = {
-    oiling: { '1동': 7, '2동': 7, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
-    cleaning: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 }
+    oiling:   { '1동': 7, '2동': 7, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
+    cleaning: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
   };
 
   const getLimit = (buildingName) => {
@@ -24,192 +34,270 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
     return BASE_LIMITS[mode][buildingName] || 0;
   };
 
-  const getCellClasses = (status, isBasement = false) => {
-    let classes = "flex items-center justify-center rounded-sm transition-all duration-300 relative group-hover:scale-105 ";
-    classes += isBasement ? "w-10 h-8 font-label text-[10px] " : "w-10 h-6 cursor-pointer font-label text-[10px] ";
-    
-    // Default Empty
-    let bg = "bg-surface-container-lowest border border-outline-variant/30 text-outline";
-    let icon = null;
-
+  const getCellBg = (status) => {
+    let bg = 'bg-surface-container-lowest border border-outline-variant/30 text-outline';
     if (viewMode === 'oiling') {
-      if (status.isOiled) { bg = "bg-warning text-white border-0 shadow-sm"; icon = "check"; }
-      else { bg = "opacity-30"; }
+      if (status.isOiled) bg = 'bg-warning text-white border-0 shadow-sm';
+      else                 bg = 'opacity-30';
     } else if (viewMode === 'cleaning') {
-      if (status.progress === 100) { bg = "bg-success text-white border-0 shadow-sm"; icon = "done_all"; }
-      else if (status.phase > 0) { 
-        bg = "bg-secondary-container text-white border-0 shadow-sm animate-pulse"; 
-        icon = "mop"; 
-      }
-      else { bg = "opacity-30"; }
+      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm';
+      else if (status.phase > 0)    bg = 'bg-secondary-container text-white border-0 shadow-sm animate-pulse';
+      else                          bg = 'opacity-30';
     } else {
-      // Total Mode
-      if (status.progress === 100) { bg = "bg-success text-white border-0 shadow-sm"; icon = "done_all"; }
-      else if (status.phase > 0) { bg = "bg-secondary-container text-white border-0 shadow-sm animate-pulse"; icon = "mop"; }
-      else if (status.isOiled) { bg = "bg-primary text-white border-0 shadow-sm"; icon = "done"; }
+      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm';
+      else if (status.phase > 0)    bg = 'bg-secondary-container text-white border-0 shadow-sm animate-pulse';
+      else if (status.isOiled)      bg = 'bg-primary text-white border-0 shadow-sm';
     }
-
-    return { classes: `${classes} ${bg}`, icon };
+    return bg;
   };
+
+  const getDisplayDate = (status) => {
+    if (viewMode === 'oiling')   return formatDate(status.oilingDate);
+    if (viewMode === 'cleaning') return formatDate(status.cleaningDate);
+    return formatDate(status.cleaningDate) || formatDate(status.oilingDate);
+  };
+
+  // 셀 (지상/지하 공통) - h-8 고정
+  const Cell = ({ status, label, isBasement = false, extraClass = '', onClick, title }) => {
+    const bg = getCellBg(status);
+    const date = getDisplayDate(status);
+    return (
+      <div
+        className={`relative flex flex-col items-center justify-center rounded-sm transition-all duration-300 cursor-pointer w-10 h-8 ${bg} ${extraClass}`}
+        title={title}
+        onClick={onClick}
+      >
+        {isBasement ? (
+          <>
+            <span className="text-[8px] font-bold uppercase tracking-tighter opacity-90 leading-none">{label}</span>
+            {date && <span className="text-[7px] font-black leading-tight tracking-tighter opacity-95">{date}</span>}
+          </>
+        ) : (
+          date
+            ? <span className="text-[9px] font-black leading-tight tracking-tighter">{date}</span>
+            : null
+        )}
+      </div>
+    );
+  };
+
+  // ── 층수 레이블 컬럼 (왼쪽 고정)
+  const FloorLabelColumn = ({ basementCount, maxFloors, limit }) => (
+    <div className="flex flex-col-reverse gap-1 items-end pr-1 flex-shrink-0">
+      {/* 하단 "호" 레이블 자리 맞춤 스페이서 */}
+      <div className="h-[22px] mt-2 mb-1 border-t border-transparent pt-1 flex items-center justify-end">
+        <span className="text-[8px] font-bold text-outline select-none">층</span>
+      </div>
+
+      {/* 지하층 레이블 */}
+      {Array.from({ length: basementCount }).map((_, i) => {
+        const floor = -(basementCount - i);
+        const label = floor === -1 ? 'B1' : floor === -2 ? 'B2' : `B${Math.abs(floor)}`;
+        return (
+          <div key={floor} className="h-8 flex items-center justify-end">
+            <span className="text-[9px] font-black text-outline">{label}</span>
+          </div>
+        );
+      })}
+
+      {/* 구분선 스페이서 */}
+      <div className="h-1 w-full my-1" />
+
+      {/* 지상층 레이블 */}
+      {Array.from({ length: maxFloors }).map((_, i) => {
+        const floor = i + 1;
+        return (
+          <React.Fragment key={floor}>
+            {floor === limit + 1 && <div className="w-full h-[2px] my-[1px]" />}
+            <div className="h-8 flex items-center justify-end">
+              <span className={`text-[9px] font-bold leading-none ${floor === 1 ? 'text-on-surface-variant' : 'text-outline-variant/70'}`}>
+                {floor}
+              </span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="space-y-8">
-      {/* Legend / Stats */}
       <div className="bg-surface-container-lowest rounded-lg blueprint-grid p-6 lg:p-8 relative">
+
+        {/* 범례 */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-6">
-            <div className="flex flex-col gap-2">
-               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 bg-primary rounded-sm shadow-sm"></div>
-                 <span className="font-label text-[10px] uppercase font-bold text-on-surface">박리제칠 완료</span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 bg-secondary-container rounded-sm shadow-sm animate-pulse"></div>
-                 <span className="font-label text-[10px] uppercase font-bold text-on-surface">청소 진행 중</span>
-               </div>
-               <div className="flex items-center gap-2">
-                 <div className="w-3 h-3 bg-success rounded-sm shadow-sm"></div>
-                 <span className="font-label text-[10px] uppercase font-bold text-on-surface">세대 최종 완료</span>
-               </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-primary rounded-sm shadow-sm" />
+              <span className="font-label text-[10px] uppercase font-bold text-on-surface">박리제칠 완료</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-secondary-container rounded-sm shadow-sm animate-pulse" />
+              <span className="font-label text-[10px] uppercase font-bold text-on-surface">청소 진행 중</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-success rounded-sm shadow-sm" />
+              <span className="font-label text-[10px] uppercase font-bold text-on-surface">세대 최종 완료</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-8 bg-surface-container border border-outline-variant/40 rounded-sm flex items-center justify-center">
+                <span className="text-[9px] font-black text-on-surface">4/16</span>
+              </div>
+              <span className="font-label text-[10px] uppercase font-bold text-on-surface">작업 날짜 표시</span>
             </div>
           </div>
           <div className="flex gap-4 p-4 bg-white/50 backdrop-blur rounded border border-outline-variant/20 shadow-sm">
-             <div className="text-center">
-                <p className="font-label text-[9px] uppercase tracking-tighter text-outline">모드</p>
-                <p className="text-xs font-bold text-primary">{viewMode === 'total' ? '현장 전체 통합뷰' : viewMode === 'oiling' ? '박리제칠 추적뷰' : '세대청소 추적뷰'}</p>
-             </div>
+            <div className="text-center">
+              <p className="font-label text-[9px] uppercase tracking-tighter text-outline">모드</p>
+              <p className="text-xs font-bold text-primary">
+                {viewMode === 'total' ? '현장 전체 통합뷰' : viewMode === 'oiling' ? '박리제칠 추적뷰' : '세대청소 추적뷰'}
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* 3x3 Grid Layout for Buildings */}
+        {/* 건물 그리드 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {buildings.map(b => (
-            <div key={b.id} className="bg-surface/90 backdrop-blur-md rounded-lg shadow-lg border border-outline-variant/30 p-6 flex flex-col justify-between overflow-hidden">
-              <div className="flex items-center justify-between mb-6 pb-2 border-b border-outline-variant/30 relative z-10">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-primary">domain</span>
-                  <h3 className="font-headline font-black tracking-tight text-xl text-primary">{b.name}</h3>
-                </div>
-                <span className="font-label text-[10px] bg-primary/10 text-primary px-2 py-1 rounded-sm uppercase tracking-wider font-bold">
-                  {viewMode === 'oiling' ? '층별 통합 관리' : `${b.houses.length} Units`}
-                </span>
-              </div>
-              
-              {viewMode === 'oiling' ? (
-                <div className="flex justify-center pb-2 relative z-10 w-full">
-                  <div className="flex flex-col-reverse gap-1 items-center group w-full max-w-[120px]">
-                    <div className="text-center font-label text-[10px] font-bold text-on-surface-variant mt-2 mb-1 w-full border-t border-outline-variant/20 pt-1">
-                      해당 동 전체
-                    </div>
+          {buildings.map(b => {
+            const maxFloors = Math.max(...b.houses.map(h => h.floors), 0);
+            const limit = getLimit(b.name);
+            const basementCount = b.basement_count || 0;
 
-                    {/* Basement (Oiling) */}
-                    {Array.from({ length: b.basement_count || 0 }).map((_, i) => {
-                      const floor = -(b.basement_count - i);
-                      const status = { isOiled: !!summary.oiling?.find(r => r.building_id === b.id && r.floor === floor) };
-                      const label = floor === -1 ? 'B1' : floor === -2 ? 'B2' : `B${Math.abs(floor)}`;
-                      const { classes, icon } = getCellClasses(status, true);
-                      
-                      return (
-                        <div 
-                          key={`total-b-${floor}`}
-                          className={`${classes} w-full`}
-                          title={`${b.name} ${label}`}
-                          onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: `B${Math.abs(floor)}` })}
-                        >
-                          {icon && <span className="material-symbols-outlined text-sm font-bold opacity-30 absolute inset-0 m-auto">{icon}</span>}
-                          <span className="z-10 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-center px-[2px] opacity-90">{label}</span>
-                        </div>
-                      );
-                    })}
+            return (
+              <div key={b.id} className="bg-surface/90 backdrop-blur-md rounded-lg shadow-lg border border-outline-variant/30 p-4 flex flex-col overflow-hidden">
 
-                    <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1"></div>
-
-                    {/* Ground (Oiling) */}
-                    {Array.from({ length: Math.max(...b.houses.map(h => h.floors), 0) }).map((_, i) => {
-                      const floor = i + 1;
-                      const status = { isOiled: !!summary.oiling?.find(r => r.building_id === b.id && r.floor === floor) };
-                      const { classes, icon } = getCellClasses(status, false);
-                      const limit = getLimit(b.name);
-                      
-                      return (
-                        <React.Fragment key={`total-${floor}`}>
-                          {/* Divider Line */}
-                          {floor === limit + 1 && (
-                            <div className="w-full h-[2px] bg-error shadow-[0_0_8px_rgba(255,0,0,0.5)] my-[1px] relative z-20">
-                              <span className="absolute -right-12 top-1/2 -translate-y-1/2 text-[8px] font-bold text-error whitespace-nowrap">기성 기준</span>
-                            </div>
-                          )}
-                          <div 
-                            className={`${classes} w-full`}
-                            title={`${b.name} ${floor}층`}
-                            onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: floor.toString() })}
-                          >
-                            {icon ? <span className="material-symbols-outlined text-sm">{icon}</span> : <span className="opacity-40">{floor}</span>}
-                          </div>
-                        </React.Fragment>
-                      );
-                    })}
+                {/* 건물 헤더 */}
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-outline-variant/30">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary">domain</span>
+                    <h3 className="font-headline font-black tracking-tight text-xl text-primary">{b.name}</h3>
                   </div>
+                  <span className="font-label text-[10px] bg-primary/10 text-primary px-2 py-1 rounded-sm uppercase tracking-wider font-bold">
+                    {viewMode === 'oiling' ? '층별 통합 관리' : `${b.houses.length} Units`}
+                  </span>
                 </div>
-              ) : (
-                <div className="flex gap-2 items-end justify-center overflow-x-auto pb-2 no-scrollbar relative z-10">
-                  {b.houses.map(house => (
-                    <div key={house.id} className="flex flex-col-reverse gap-1 items-center group">
+
+                {/* ── 기름칠 모드 */}
+                {viewMode === 'oiling' ? (
+                  <div className="flex gap-2 items-end justify-center overflow-x-auto pb-2 no-scrollbar">
+                    {/* 층수 레이블 */}
+                    <FloorLabelColumn
+                      basementCount={basementCount}
+                      maxFloors={maxFloors}
+                      limit={limit}
+                    />
+
+                    {/* 동 전체 단일 열 */}
+                    <div className="flex flex-col-reverse gap-1 items-center">
                       <div className="text-center font-label text-[10px] font-bold text-on-surface-variant mt-2 mb-1 w-full border-t border-outline-variant/20 pt-1">
-                        {house.ho.replace('호', '')}
+                        전 체
                       </div>
 
-                      {/* Basement */}
-                      {Array.from({ length: b.basement_count || 0 }).map((_, i) => {
-                        const floor = -(b.basement_count - i);
-                        const status = getStatus(house.id, floor);
-                        const label = floor === -1 ? house.basement_label_b1 : floor === -2 ? house.basement_label_b2 : `B${Math.abs(floor)}`;
-                        const { classes, icon } = getCellClasses(status, true);
-                        
+                      {/* 지하층 */}
+                      {Array.from({ length: basementCount }).map((_, i) => {
+                        const floor = -(basementCount - i);
+                        const rec = summary.oiling?.find(r => r.building_id === b.id && r.floor === floor);
+                        const status = { isOiled: !!rec, oilingDate: rec?.date || null, phase: 0, progress: 0, cleaningDate: null };
+                        const label = floor === -1 ? 'B1' : floor === -2 ? 'B2' : `B${Math.abs(floor)}`;
                         return (
-                          <div 
-                            key={`b-${floor}`}
-                            className={classes}
-                            title={`${house.ho} ${label}`}
-                            onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: `B${Math.abs(floor)}` })}
-                          >
-                            {icon && <span className="material-symbols-outlined text-sm font-bold opacity-30 absolute inset-0 m-auto">{icon}</span>}
-                            <span className="z-10 text-[8px] font-bold uppercase tracking-tighter truncate w-full text-center px-[2px] opacity-90">{label}</span>
-                          </div>
+                          <Cell
+                            key={`ob-${floor}`}
+                            status={status}
+                            label={label}
+                            isBasement
+                            extraClass="w-14"
+                            title={`${b.name} ${label}`}
+                            onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: `B${Math.abs(floor)}` })}
+                          />
                         );
                       })}
 
-                      <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1"></div>
+                      <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1" />
 
-                      {/* Ground */}
-                      {Array.from({ length: house.floors }).map((_, i) => {
+                      {/* 지상층 */}
+                      {Array.from({ length: maxFloors }).map((_, i) => {
                         const floor = i + 1;
-                        const status = getStatus(house.id, floor);
-                        const { classes, icon } = getCellClasses(status, false);
-                        const limit = getLimit(b.name);
-                        
+                        const rec = summary.oiling?.find(r => r.building_id === b.id && r.floor === floor);
+                        const status = { isOiled: !!rec, oilingDate: rec?.date || null, phase: 0, progress: 0, cleaningDate: null };
                         return (
                           <React.Fragment key={floor}>
-                            {/* Divider Line */}
                             {floor === limit + 1 && (
-                              <div className="w-full h-[2px] bg-error shadow-[0_0_4px_rgba(255,0,0,0.5)] my-[1px] relative z-20"></div>
+                              <div className="w-full h-[2px] bg-error shadow-[0_0_8px_rgba(255,0,0,0.5)] my-[1px] relative z-20">
+                                <span className="absolute -right-12 top-1/2 -translate-y-1/2 text-[8px] font-bold text-error whitespace-nowrap">기성 기준</span>
+                              </div>
                             )}
-                            <div 
-                              className={classes}
-                              title={`${b.name} ${floor}층 ${house.ho}`}
-                              onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: floor.toString() })}
-                            >
-                              {icon ? <span className="material-symbols-outlined text-sm">{icon}</span> : <span className="opacity-40">{floor}</span>}
-                            </div>
+                            <Cell
+                              status={status}
+                              extraClass="w-14"
+                              title={`${b.name} ${floor}층`}
+                              onClick={() => onCellClick && onCellClick({ building_id: b.id, floor: floor.toString() })}
+                            />
                           </React.Fragment>
                         );
                       })}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+                  </div>
+
+                ) : (
+                  /* ── 전체/청소 모드 */
+                  <div className="flex gap-1 items-end justify-start overflow-x-auto pb-2 no-scrollbar">
+                    {/* 층수 레이블 컬럼 */}
+                    <FloorLabelColumn
+                      basementCount={basementCount}
+                      maxFloors={maxFloors}
+                      limit={limit}
+                    />
+
+                    {/* 호수별 열 */}
+                    {b.houses.map(house => (
+                      <div key={house.id} className="flex flex-col-reverse gap-1 items-center flex-shrink-0">
+                        <div className="text-center font-label text-[10px] font-bold text-on-surface-variant mt-2 mb-1 w-full border-t border-outline-variant/20 pt-1">
+                          {house.ho.replace('호', '')}
+                        </div>
+
+                        {/* 지하층 */}
+                        {Array.from({ length: basementCount }).map((_, i) => {
+                          const floor = -(basementCount - i);
+                          const status = getStatus(house.id, floor);
+                          const label = floor === -1 ? house.basement_label_b1 : floor === -2 ? house.basement_label_b2 : `B${Math.abs(floor)}`;
+                          return (
+                            <Cell
+                              key={`b-${floor}`}
+                              status={status}
+                              label={label}
+                              isBasement
+                              title={`${house.ho} ${label}`}
+                              onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: `B${Math.abs(floor)}` })}
+                            />
+                          );
+                        })}
+
+                        <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1" />
+
+                        {/* 지상층 */}
+                        {Array.from({ length: house.floors }).map((_, i) => {
+                          const floor = i + 1;
+                          const status = getStatus(house.id, floor);
+                          return (
+                            <React.Fragment key={floor}>
+                              {floor === limit + 1 && (
+                                <div className="w-full h-[2px] bg-error shadow-[0_0_4px_rgba(255,0,0,0.5)] my-[1px] relative z-20" />
+                              )}
+                              <Cell
+                                status={status}
+                                title={`${b.name} ${floor}층 ${house.ho}`}
+                                onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: floor.toString() })}
+                              />
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

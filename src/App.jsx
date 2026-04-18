@@ -16,6 +16,17 @@ dayjs.locale('ko');
 
 const API_URL = 'http://localhost:5000/api';
 
+const parseFloor = (f) => {
+  if (typeof f === 'number') return f;
+  if (!f) return 0;
+  const s = f.toString().toUpperCase();
+  if (s.startsWith('B')) {
+    const num = parseInt(s.replace('B', ''));
+    return isNaN(num) ? 0 : -num;
+  }
+  return parseInt(s) || 0;
+};
+
 const TABS = [
   { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },
   { id: 'elevation',  label: '배치도',    icon: 'grid_view' },
@@ -111,15 +122,8 @@ function App() {
       setRecords(data || []);
     } catch (err) { console.error(err); }
   };
-
   const handleCellClick = (data) => {
-    let floorInt = data.floor;
-    if (typeof floorInt === 'string') {
-      const upper = floorInt.toUpperCase();
-      if (upper === 'B1') floorInt = -1;
-      else if (upper === 'B2') floorInt = -2;
-      else floorInt = parseInt(floorInt);
-    }
+    let floorInt = parseFloor(data.floor);
     const type = viewMode === 'oiling' ? 'oiling' : 'cleaning';
     let existingRecord = null;
     if (type === 'oiling') {
@@ -170,13 +174,7 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.record_id) {
-      let pFloor = formData.floors?.[0] || formData.floor;
-      if (typeof pFloor === 'string') {
-        const upper = pFloor.toUpperCase();
-        if (upper === 'B1') pFloor = -1;
-        else if (upper === 'B2') pFloor = -2;
-        else pFloor = parseInt(pFloor);
-      }
+      let pFloor = parseFloor(formData.floors?.[0] || formData.floor);
       
       await fetch(`${API_URL}/records/${modalType}/${formData.record_id}`, {
         method: 'PUT',
@@ -193,13 +191,7 @@ function App() {
       }
       const promises = targetHouses.flatMap(hId => 
         targetFloors.map(fStr => {
-          let pFloor = fStr;
-          if (typeof fStr === 'string') {
-            const upper = fStr.toUpperCase();
-            if (upper === 'B1') pFloor = -1;
-            else if (upper === 'B2') pFloor = -2;
-            else pFloor = parseInt(fStr);
-          }
+          let pFloor = parseFloor(fStr);
           return fetch(`${API_URL}/records/${modalType}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -215,13 +207,7 @@ function App() {
         return;
       }
       const promises = targetFloors.map(fStr => {
-        let pFloor = fStr;
-        if (typeof fStr === 'string') {
-          const upper = fStr.toUpperCase();
-          if (upper === 'B1') pFloor = -1;
-          else if (upper === 'B2') pFloor = -2;
-          else pFloor = parseInt(fStr);
-        }
+        let pFloor = parseFloor(fStr);
         return fetch(`${API_URL}/records/${modalType}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -285,9 +271,11 @@ function App() {
 
   const formatFloorDisplay = (floor) => {
     if (floor === undefined || floor === null || floor === '') return '-';
-    const f = parseInt(floor);
-    if (f === -1) return 'B1';
-    if (f === -2) return 'B2';
+    const s = floor.toString().toUpperCase();
+    if (s.startsWith('B')) return s;
+    const f = parseInt(s);
+    if (isNaN(f)) return s;
+    if (f < 0) return `B${Math.abs(f)}`;
     return `${f}F`;
   };
 

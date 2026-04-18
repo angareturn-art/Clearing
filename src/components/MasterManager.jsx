@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
+const API_URL = 'http://localhost:5000/api';
+
 const MasterManager = ({ buildings, onRefresh }) => {
   const [selectedBuildingId, setSelectedBuildingId] = useState(buildings[0]?.id || '');
   const [editData, setEditData] = useState(null);
@@ -27,7 +29,7 @@ const MasterManager = ({ buildings, onRefresh }) => {
   const handleSave = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/master/save-building', {
+      const res = await fetch(`${API_URL}/master/save-building`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editData)

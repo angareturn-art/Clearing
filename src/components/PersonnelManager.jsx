@@ -98,13 +98,12 @@ export default function PersonnelManager() {
   };
 
   const getWeight = (ot_h, night_h) => {
-    // 사용자 정의 가중치 계산: OT(1h=0.1), 야간(2h=0.5, 4h=1.0)
-    // 여기서는 ot_hours와 night_hours를 합산하여 판별하거나 개별적으로 처리 가능
     // 요청 사항: OT 0.1, 야간 6시 0.1, 7시 0.5, 9시 1.0
-    const total_extra = (ot_h || 0) + (night_h || 0);
-    if (total_extra >= 4) return 1.0;
-    if (total_extra >= 2) return 0.5;
-    if (total_extra >= 1) return 0.1;
+    // OT와 야간을 합쳐서 계산 (5시 이후 작업 합산)
+    const extra = (ot_h || 0) + (night_h || 0);
+    if (extra >= 4) return 1.0;
+    if (extra >= 2) return 0.5;
+    if (extra >= 1) return 0.1;
     return 0;
   };
 
@@ -130,7 +129,8 @@ export default function PersonnelManager() {
     if (r.night_hours > 0) acc[r.name].night_days += 1;
     
     // 가중치 합산: 실제 근무 비례(일반인 경우 1.0) + 추가 가중치(0.1, 0.5, 1.0)
-    acc[r.name].total_weight += (r.work_hours / 8) + getWeight(r.ot_hours, r.night_hours);
+    const weight = getWeight(r.ot_hours, r.night_hours);
+    acc[r.name].total_weight += (r.work_hours / 8) + weight;
     acc[r.name].days += 1;
     return acc;
   }, {});
