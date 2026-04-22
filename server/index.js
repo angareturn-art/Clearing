@@ -6,19 +6,38 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
 
+// ── 백엔드 서버 엔진 설정 ──
 const app = express();
 const PORT = 5000;
 const JWT_SECRET = 'blueprint_authority_secret_2025';
 const DB_PATH = path.join(__dirname, 'construction.db');
+const ERROR_LOG_PATH = path.join(__dirname, '..', '..', 'Error.md');
+
+// ── 오류 기록 유틸리티 (Error.md 파일에 기록) ──
+function logErrorToFile(error, type = 'Server') {
+  const timestamp = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const message = error.stack || error.message || String(error);
+  // 줄바꿈 문자를 <br>로 치환하여 마크다운 테이블이 깨지지 않게 함
+  const formattedMessage = message.replace(/\n/g, '<br>').replace(/\|/g, '\\|');
+  const logEntry = `| ${timestamp} | ${formattedMessage} | ${type} |\n`;
+  
+  try {
+    fs.appendFileSync(ERROR_LOG_PATH, logEntry);
+  } catch (err) {
+    console.error('Failed to write to Error.md:', err);
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
-// ── DB 초기화
+// ── 데이터베이스 연결 (현장 관리 데이터가 저장되는 곳) ──
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// ── 프로그램 실행 시 필요한 데이터 테이블(장부) 자동 생성 ──
+// 각 테이블은 현장의 특정 정보를 담는 '디지털 장부'와 같습니다.
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,15 +181,20 @@ db.exec(`
     memo TEXT,
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
+
+  CREATE TABLE IF NOT EXISTS site_config (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  );
 `);
 
-// 초기 데이터 (없을 때만)
+// ── 프로그램 기본 정보 자동 입력 (동/호수/계정 초기화) ──
 const bCount = db.prepare('SELECT COUNT(*) as c FROM buildings').get();
 if (bCount.c === 0) {
   const insertB = db.prepare('INSERT INTO buildings (name, address, basement_count) VALUES (?,?,?)');
   const insertH = db.prepare('INSERT INTO houses (building_id, ho, line, floors, basement_label_b1, basement_label_b2) VALUES (?,?,?,?,?,?)');
 
-  // 실제 단지 세대 정보 (동명: 호수별 층수)
   const buildingData = [
     {
       name: '1동', houses: [
@@ -249,7 +273,18 @@ if (bCount.c === 0) {
   });
 }
 
-// 비상 연락망 초기 데이터
+// ── 현장 설정 초기화 ──
+const scCount = db.prepare('SELECT COUNT(*) as c FROM site_config').get();
+if (scCount.c === 0) {
+  const insertSC = db.prepare('INSERT INTO site_config (key, value) VALUES (?,?)');
+  insertSC.run('site_address', '');
+  insertSC.run('start_date', '');
+  insertSC.run('end_date', '');
+  insertSC.run('latitude', '37.5665');
+  insertSC.run('longitude', '126.9780');
+}
+
+// ── 비상 연락망 초기 데이터 ──
 const ecCount = db.prepare('SELECT COUNT(*) as c FROM emergency_contacts').get();
 if (ecCount.c === 0) {
   const insertEC = db.prepare('INSERT INTO emergency_contacts (category,name,phone,role,sort_order) VALUES (?,?,?,?,?)');
@@ -262,7 +297,7 @@ if (ecCount.c === 0) {
   ].forEach(r => insertEC.run(...r));
 }
 
-// ── Auth 미들웨어
+// ── Auth 미들웨어 ──
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: '인증 필요' });
@@ -274,7 +309,7 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-// ── 인증 API
+// ── 인증 API (로그인 및 회원가입) ──
 app.post('/api/auth/register', async (req, res) => {
   const { email, password, name, role } = req.body;
   try {
@@ -324,6 +359,49 @@ app.post('/api/master/add-building', (req, res) => {
   const { name } = req.body;
   const result = db.prepare('INSERT INTO buildings (name,basement_count) VALUES (?,0)').run(name);
   res.json({ id: result.lastInsertRowid });
+});
+
+// ── 현장 설정 API
+app.get('/api/site-config', (req, res) => {
+  const config = db.prepare('SELECT * FROM site_config').all();
+  const result = config.reduce((acc, curr) => {
+    acc[curr.key] = curr.value;
+    return acc;
+  }, {});
+  res.json(result);
+});
+
+app.post('/api/site-config', async (req, res) => {
+  const settings = req.body; 
+  
+  // 주소가 변경된 경우 지오코딩 시도
+  if (settings.site_address) {
+    try {
+      const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(settings.site_address)}&limit=1`;
+      const geoRes = await fetch(geoUrl, { headers: { 'User-Agent': 'ClearingSystem/1.0' } });
+      const geoData = await geoRes.json();
+      if (geoData && geoData.length > 0) {
+        settings.latitude = geoData[0].lat;
+        settings.longitude = geoData[0].lon;
+      }
+    } catch (err) {
+      console.error('Geocoding failed:', err);
+    }
+  }
+
+  const upsertSC = db.prepare(`
+    INSERT INTO site_config (key, value) VALUES (?,?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now','localtime')
+  `);
+  
+  const transaction = db.transaction((data) => {
+    for (const [key, value] of Object.entries(data)) {
+      upsertSC.run(key, value);
+    }
+  });
+  
+  transaction(settings);
+  res.json({ success: true });
 });
 
 // ── 요약 (대시보드)
@@ -549,7 +627,33 @@ app.post('/api/worker-prices', (req, res) => {
   res.json({ success: true });
 });
 
+// ── 프론트엔드 오류 수집용 API ──
+app.post('/api/log-error', (req, res) => {
+  const { error, info } = req.body;
+  logErrorToFile(`Message: ${error}\nInfo: ${info}`, 'Frontend');
+  res.json({ success: true });
+});
+
 // ── 헬스체크
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+
+// ── 글로벌 에러 핸들러 및 예외 처리 ──
+app.use((err, req, res, next) => {
+  console.error('❌ Server Error:', err);
+  logErrorToFile(err, 'Server');
+  res.status(500).json({ error: '백엔드 서버 오류가 발생했습니다.' });
+});
+
+process.on('uncaughtException', (err) => {
+  logErrorToFile(err, 'Critical (Uncaught)');
+  console.error('❌ Critical Uncaught Exception:', err);
+  // 치명적인 오류의 경우 기록 후 프로세스 종료가 안전할 수 있음
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logErrorToFile(reason, 'Critical (Rejection)');
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 app.listen(PORT, () => console.log(`✅ Blueprint Authority Server running on port ${PORT}`));

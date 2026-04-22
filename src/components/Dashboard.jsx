@@ -3,19 +3,24 @@ import dayjs from 'dayjs';
 
 const API_URL = 'http://localhost:5000/api';
 
-const Dashboard = ({ buildings, summary }) => {
-  const [weather, setWeather] = useState(null);
-  const [loadingWeather, setLoadingWeather] = useState(true);
+const Dashboard = ({ buildings, summary, siteConfig }) => {
+  const [weather, setWeather] = useState(null);           // 현재 날씨 데이터를 저장하는 주머니
+  const [loadingWeather, setLoadingWeather] = useState(true); // 날씨 정보를 가져오는 중인지 표시
 
+  // 현장의 주소(위도/경도)가 바뀌면 날씨를 다시 가져옵니다.
   useEffect(() => {
     fetchAndSaveWeather();
-  }, []);
+  }, [siteConfig?.latitude, siteConfig?.longitude]);
 
+  // ── 날씨 정보 가져오기 ──
   const fetchAndSaveWeather = async () => {
+    // 주소 기반의 좌표(위도/경도)가 있으면 사용하고, 없으면 기본값(서울)을 사용합니다.
+    const lat = siteConfig?.latitude || '37.5665';
+    const lon = siteConfig?.longitude || '126.9780';
+
     setLoadingWeather(true);
     try {
-      // Open-Meteo 무료 API (서울 좌표)
-      const geoRes = await fetch('https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,wind_speed_10m,precipitation,weather_code&timezone=Asia/Seoul');
+      const geoRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,precipitation,weather_code&timezone=Asia/Seoul`);
       const geoData = await geoRes.json();
       const current = geoData.current;
       const wData = {
@@ -26,20 +31,22 @@ const Dashboard = ({ buildings, summary }) => {
         condition: getWeatherCondition(current.weather_code)
       };
       setWeather(wData);
-      // DB 저장
+
+      // 나중에 통계를 위해 서버(데이터베이스)에도 이 날씨를 저장해둡니다.
       await fetch(`${API_URL}/weather`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(wData)
       });
     } catch (e) {
-      // fallback
+      console.error('날씨 데이터 가져오기 실패:', e);
       setWeather({ temperature: '--', wind_speed: '--', precipitation: '--', condition: '정보 없음' });
     } finally {
       setLoadingWeather(false);
     }
   };
 
+  // 숫자 코드로 된 날씨 정보를 사람이 읽을 수 있는 한글로 바꿉니다.
   const getWeatherCondition = (code) => {
     if (code === 0) return '맑음';
     if (code <= 3) return '구름 조금';
@@ -49,6 +56,7 @@ const Dashboard = ({ buildings, summary }) => {
     return '흐림';
   };
 
+  // 날씨 상태에 맞는 아이콘 모양을 결정합니다.
   const getWeatherIcon = (condition) => {
     if (!condition) return 'wb_sunny';
     if (condition.includes('맑음')) return 'wb_sunny';
@@ -58,50 +66,50 @@ const Dashboard = ({ buildings, summary }) => {
     return 'cloud';
   };
 
-  // KPI 계산
+  // ── 주요 수치(KPI) 계산 ──
+  // 현장의 전체 세대(동별 모든 층의 합)를 구합니다.
   const totalUnits = buildings.reduce((acc, b) => acc + b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0), 0);
+
+  // 지금까지 박리제(기름칠)가 완료된 구역의 개수를 셉니다.
   const oiledCount = new Set(summary.oiling?.map(r => `${r.building_id}-${r.floor}`)).size;
+
+  // 청소가 100% 완료된 세대와 진행 중인 세대를 구분합니다.
   const cleanedCount = summary.cleaning?.filter(r => r.progress === 100).length || 0;
   const inProgressCount = summary.cleaning?.filter(r => r.progress < 100).length || 0;
+
+  // 자재 인양 등의 기타 작업 기록 개수입니다.
   const liftingCount = summary.lifting?.length || 0;
 
-  // 동별 진행률
+  // ── 동별(건물별) 상세 진행률 계산 ──
   const buildingProgress = buildings.map(b => {
-    // 1. 해당 동의 총 셀 개수 (청소용 모수 = 모든 호수의 지상층 + 지하층 합산)
+    // 1. 해당 한 개 동의 전체 작업 공간(청소 기준: 모든 호수 x 층수)을 구합니다.
     const totalFloors = b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0);
-    
-    // 박리제칠용 모수 (순수 건물의 최대 층수 합산)
+
+    // 기름칠은 건물 자체의 층 단위로 관리하므로 기준을 다르게 잡습니다.
     const maxGroundFloor = Math.max(...b.houses.map(h => h.floors), 0);
     const totalFloorsForOiling = maxGroundFloor + (b.basement_count || 0);
 
-    // 2. 박리제칠 진행 개수 (지하, 지상 모두 확인) - 호수 무관, 층 단위
-    const basements = Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i));
-    const grounds = Array.from({ length: maxGroundFloor }).map((_, i) => i + 1);
-    const allUniqueFloors = [...basements, ...grounds];
-    
-    const oiledFloors = allUniqueFloors.filter(f =>
-      summary.oiling?.some(r => r.building_id === b.id && r.floor === f)
-    ).length;
+    // 2. 해당 동에서 기름칠 기록이 있는 층의 개수를 셉니다.
+    const oiledFloors = [...Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i)),
+    ...Array.from({ length: maxGroundFloor }).map((_, i) => i + 1)]
+      .filter(f => summary.oiling?.some(r => r.building_id === b.id && r.floor === f)).length;
 
-    // 3. 청소 진행 개수 (50%는 0.5세대, 100%는 1세대로 계산)
+    // 3. 해당 동에서 청소가 완료된 세대 수를 더합니다 (50% 완료는 0.5세대 등으로 합산).
     const cleanedFloors = b.houses.reduce((a, h) => {
-      const hBasements = Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i));
-      const hGrounds = Array.from({ length: h.floors }).map((_, i) => i + 1);
-      const hAllFloors = [...hBasements, ...hGrounds];
-      
+      const hAllFloors = [...Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i)),
+      ...Array.from({ length: h.floors }).map((_, i) => i + 1)];
       return a + hAllFloors.reduce((sum, f) => {
-        const cellRecords = summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f) || [];
-        const maxProg = cellRecords.length > 0 ? Math.max(...cellRecords.map(r => r.progress || 0)) : 0;
+        const maxProg = Math.max(...(summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f).map(r => r.progress) || [0]));
         return sum + (maxProg / 100);
       }, 0);
     }, 0);
 
     return {
       name: b.name,
-      totalFloors, // for UI display
+      totalFloors,
       totalFloorsForOiling,
       oiledFloors,
-      cleanedFloors: Number(cleanedFloors.toFixed(1)), // 소수점 1자리 통일
+      cleanedFloors: Number(cleanedFloors.toFixed(1)),
       oilRate: totalFloorsForOiling > 0 ? Math.round((oiledFloors / totalFloorsForOiling) * 100) : 0,
       cleanRate: totalFloors > 0 ? Math.round((cleanedFloors / totalFloors) * 100) : 0,
     };
@@ -121,12 +129,13 @@ const Dashboard = ({ buildings, summary }) => {
 
       {/* 날씨 + KPI 상단 카드 */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {/* 날씨 */}
         <div className="col-span-2 lg:col-span-2 bg-gradient-to-br from-primary to-primary-container text-white rounded-lg p-6 relative overflow-hidden shadow-lg">
           <div className="absolute -right-4 -top-4 opacity-10">
             <span className="material-symbols-outlined text-[120px]">{getWeatherIcon(weather?.condition)}</span>
           </div>
-          <p className="font-label text-[10px] uppercase tracking-widest opacity-70 mb-3">오늘 날씨 · 서울</p>
+          <p className="font-label text-[10px] uppercase tracking-widest opacity-70 mb-3">
+            오늘 날씨 · {siteConfig?.site_address ? siteConfig.site_address.split(' ').slice(0, 2).join(' ') : '위치 정보 없음'}
+          </p>
           {loadingWeather ? (
             <div className="animate-pulse h-16 bg-white/20 rounded"></div>
           ) : (
@@ -204,9 +213,9 @@ const Dashboard = ({ buildings, summary }) => {
           <h3 className="font-label text-sm font-bold uppercase tracking-widest text-secondary">최근 작업 내역</h3>
         </div>
         <div className="space-y-2">
-          {[...( summary.cleaning?.slice(0, 3) || []).map(r => ({ ...r, type: '청소' })),
-            ...(summary.oiling?.slice(0, 2) || []).map(r => ({ ...r, type: '박리제칠' })),
-            ...(summary.lifting?.slice(0, 1) || []).map(r => ({ ...r, type: '인양' }))
+          {[...(summary.cleaning?.slice(0, 3) || []).map(r => ({ ...r, type: '청소' })),
+          ...(summary.oiling?.slice(0, 2) || []).map(r => ({ ...r, type: '박리제칠' })),
+          ...(summary.lifting?.slice(0, 1) || []).map(r => ({ ...r, type: '인양' }))
           ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 5).map((r, i) => (
             <div key={i} className="flex items-center justify-between py-2 border-b border-outline-variant/20 last:border-0">
               <div className="flex items-center gap-3">

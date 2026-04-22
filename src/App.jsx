@@ -27,48 +27,44 @@ const parseFloor = (f) => {
   return parseInt(s) || 0;
 };
 
+// ── 화면 탭 구성 (메뉴 버튼 목록) ──
 const TABS = [
-  { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },
-  { id: 'elevation',  label: '배치도',    icon: 'grid_view' },
-  { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' },
-  { id: 'records',    label: '기록',      icon: 'description' },
-  { id: 'cost',       label: '비용',      icon: 'payments' },
-  { id: 'personnel',  label: '인원',      icon: 'badge' },
-  { id: 'workers',    label: '작업자',    icon: 'groups' },
-  { id: 'payment_status', label: '기성 현황', icon: 'payments' },
-  { id: 'emergency',  label: '비상연락',  icon: 'emergency' },
-  { id: 'settings',   label: '기준정보',  icon: 'database' },
+  { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },      // 현지 현황 요약
+  { id: 'elevation',  label: '배치도',    icon: 'grid_view' },      // 건물별 진행 상태 그리드
+  { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' }, // 날짜별 작업 내역
+  { id: 'records',    label: '기록',      icon: 'description' },    // 상세 기록 목록 및 관리
+  { id: 'cost',       label: '비용',      icon: 'payments' },       // 현장 비용 관리
+  { id: 'personnel',  label: '인원',      icon: 'badge' },          // 일일 출역/인원 관리
+  { id: 'workers',    label: '작업자',    icon: 'groups' },         // 작업자 마스터 관리
+  { id: 'payment_status', label: '기성 현황', icon: 'payments' },  // 공정별 기성비 산출
+  { id: 'emergency',  label: '비상연락',  icon: 'emergency' },      // 주요 연락처 목록
+  { id: 'settings',   label: '기준정보',  icon: 'database' },       // 현장 및 동/호수 기본 설정
 ];
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(() => {
+  // ── 상태 관리 (데이터를 담는 주머니들) ──
+  const [currentUser, setCurrentUser] = useState(() => {      // 현재 로그인한 사용자 정보
     const stored = localStorage.getItem('ba_user');
     return stored ? JSON.parse(stored) : null;
   });
 
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [viewMode, setViewMode] = useState('total');
-  const [buildings, setBuildings] = useState([]);
-  const [summary, setSummary] = useState({ oiling: [], cleaning: [], lifting: [] });
-  const [records, setRecords] = useState([]);
-  const [filterDate, setFilterDate] = useState(dayjs().format('YYYY-MM-DD'));
-  const [filterBuilding, setFilterBuilding] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState('cleaning');
-  const [sessionTimer, setSessionTimer] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard');   // 현재 보고 있는 메뉴 탭
+  const [viewMode, setViewMode] = useState('total');         // 배치도 보기 모드 (통합/기름칠/청소)
+  const [buildings, setBuildings] = useState([]);             // 건물(동) 전체 정보
+  const [summary, setSummary] = useState({ oiling: [], cleaning: [], lifting: [] }); // 각 공정별 집계 요약
+  const [records, setRecords] = useState([]);                 // 상세 작업 기록 리스트
+  const [filterDate, setFilterDate] = useState(dayjs().format('YYYY-MM-DD')); // 조회 날짜 필터
+  const [filterBuilding, setFilterBuilding] = useState('');   // 조회 건물 필터
+  const [showModal, setShowModal] = useState(false);          // 기록 입력창(모달) 표시 여부
+  const [modalType, setModalType] = useState('cleaning');    // 입력하려는 기록 종류 (청소/기름칠/인양)
+  const [sessionTimer, setSessionTimer] = useState(null);     // 자동 로그아웃을 위한 타이머
+  const [siteConfig, setSiteConfig] = useState(null);         // 현장 공통 설정 (주소 등)
+  
+  // 입력창에 표시할 데이터 초기값
   const [formData, setFormData] = useState({
-    record_id: null,
-    house_id: '',
-    house_ids: [],
-    building_id: '',
-    date: dayjs().format('YYYY-MM-DD'),
-    time: dayjs().format('HH:mm'),
-    operator: '',
-    phase: 1,
-    progress: 50,
-    remarks: '',
-    floor: '',
-    floors: []
+    record_id: null, building_id: '', house_id: '', house_ids: [],
+    date: dayjs().format('YYYY-MM-DD'), time: dayjs().format('HH:mm'),
+    operator: '', phase: 1, progress: 50, remarks: '', floor: '', floors: []
   });
 
   // 세션 타임아웃 (8시간)
@@ -91,6 +87,7 @@ function App() {
     if (currentUser) {
       fetchBaseData();
       fetchSummary();
+      fetchSiteConfig();
     }
   }, [currentUser]);
 
@@ -98,29 +95,43 @@ function App() {
     if (activeTab === 'records') fetchRecords();
   }, [activeTab, filterDate, filterBuilding, modalType]);
 
+  // ── 서버 데이터 가져오기 (API 통신) ──
+
+  // 1. 건물 및 세대 기본 정보를 가져옵니다.
   const fetchBaseData = async () => {
     try {
       const res = await fetch(`${API_URL}/data`);
       const data = await res.json();
       setBuildings(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error('기본 정보 로드 실패:', err); }
   };
 
+  // 2. 현재 공정별 요약 데이터(누가 어디서 작업했는지 등)를 가져옵니다.
   const fetchSummary = async () => {
     try {
       const res = await fetch(`${API_URL}/status/summary`);
       const data = await res.json();
       setSummary(data || { oiling: [], cleaning: [], lifting: [] });
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error('요약 데이터 로드 실패:', err); }
   };
 
+  // 3. 현장 공통 설정(주소, 공기 등) 정보를 가져옵니다.
+  const fetchSiteConfig = async () => {
+    try {
+      const res = await fetch(`${API_URL}/site-config`);
+      const data = await res.json();
+      setSiteConfig(data);
+    } catch (err) { console.error('현장 설정 로드 실패:', err); }
+  };
+
+  // 4. 상세 작업 내역 리스트를 가져옵니다 (필터 기준).
   const fetchRecords = async () => {
     try {
       const params = new URLSearchParams({ date: filterDate, buildingId: filterBuilding });
       const res = await fetch(`${API_URL}/records/${modalType}?${params}`);
       const data = await res.json();
       setRecords(data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error('기록 로드 실패:', err); }
   };
   const handleCellClick = (data) => {
     let floorInt = parseFloor(data.floor);
@@ -333,10 +344,8 @@ function App() {
       </header>
 
       {/* 메인 콘텐츠 */}
-      <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6 min-h-screen pb-28 md:pb-8">
-        {activeTab === 'dashboard' && (
-          <Dashboard buildings={buildings} summary={summary} />
-        )}
+      <main className="flex-1 p-4 md:p-8 space-y-8 pb-32">
+        {activeTab === 'dashboard' && <Dashboard buildings={buildings} summary={summary} siteConfig={siteConfig} />}
 
         {activeTab === 'elevation' && (
           <div>
@@ -367,7 +376,7 @@ function App() {
         )}
 
         {activeTab === 'settings' && (
-          <MasterManager buildings={buildings} onRefresh={() => { fetchBaseData(); fetchSummary(); }} />
+          <MasterManager buildings={buildings} onRefresh={() => { fetchBaseData(); fetchSummary(); fetchSiteConfig(); }} siteConfig={siteConfig} />
         )}
         {activeTab === 'calendar' && <CalendarView summary={summary} />}
         {activeTab === 'cost' && <CostManager />}
@@ -619,6 +628,51 @@ function App() {
       >
         <span className="material-symbols-outlined text-3xl">add</span>
       </button>
+
+      {/* ── Fixed Footer Site Info Bar ── */}
+      {currentUser && (
+        <footer className="fixed bottom-20 md:bottom-0 left-0 w-full z-[40] pointer-events-none px-4 pb-4 md:pb-6">
+          <div className="max-w-7xl mx-auto pointer-events-auto">
+            <div className="bg-surface/60 backdrop-blur-xl border border-outline-variant/20 shadow-[0_8px_32px_rgba(0,0,0,0.1)] rounded-xl py-3 px-6 flex items-center justify-between gap-4 animate-slide-up">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-primary text-lg">location_on</span>
+                </div>
+                <div className="overflow-hidden">
+                  <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">현재 현장 위치</p>
+                  <p className="font-body text-sm font-bold text-on-surface truncate">
+                    {siteConfig?.site_address || '현장 주소를 등록해주세요'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="hidden sm:flex items-center gap-8">
+                <div className="flex items-center gap-3 border-l border-outline-variant/30 pl-8">
+                  <div className="w-8 h-8 rounded-full bg-tertiary/10 flex items-center justify-center flex-shrink-0">
+                    <span className="material-symbols-outlined text-tertiary text-lg">calendar_today</span>
+                  </div>
+                  <div>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">공사 기간</p>
+                    <p className="font-body text-xs font-bold text-on-surface">
+                      {siteConfig?.start_date || '--'} ~ {siteConfig?.end_date || '--'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 border-l border-outline-variant/30 pl-8">
+                  <div className="text-right">
+                    <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">시스템 상태</p>
+                    <p className="flex items-center gap-1.5 justify-end">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></span>
+                      <span className="font-label text-[10px] font-black text-on-surface uppercase tracking-wider">Online</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </footer>
+      )}
     </>
   );
 }

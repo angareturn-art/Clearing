@@ -10,16 +10,22 @@ const formatDate = (dateStr) => {
 
 const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) => {
 
+  // ── 각 칸(세대/층)의 작업 상태 조회 ──
   const getStatus = (houseId, floor) => {
+    // 1. 박리제(기름칠) 기록이 있는지 확인합니다.
     const oiling = summary.oiling?.find(r => r.house_id === houseId && r.floor === floor);
+    
+    // 2. 청소 기록 중 가장 최근(가장 높은 차수)의 기록을 찾습니다.
     const cleaning = summary.cleaning
       ?.filter(r => r.house_id === houseId && r.floor === floor)
       .sort((a, b) => b.phase - a.phase)[0];
+      
+    // 3. 해당 칸의 최종 상태 정보를 반환합니다.
     return {
-      isOiled:      !!oiling,
+      isOiled:      !!oiling,         // 기름칠 되었는가?
       oilingDate:   oiling?.date || null,
-      phase:        cleaning ? cleaning.phase : 0,
-      progress:     cleaning ? cleaning.progress : 0,
+      phase:        cleaning ? cleaning.phase : 0,    // 몇 차 청소인가?
+      progress:     cleaning ? cleaning.progress : 0, // 청소 진행률(50% 또는 100%)
       cleaningDate: cleaning?.date || null,
     };
   };
@@ -34,19 +40,24 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
     return BASE_LIMITS[mode][buildingName] || 0;
   };
 
+  // ── 상태에 따른 칸의 배경색 결정 ──
   const getCellBg = (status) => {
-    let bg = 'bg-surface-container-lowest border border-outline-variant/30 text-outline';
+    let bg = 'bg-surface-container-lowest border border-outline-variant/30 text-outline'; // 기본 (작업 전)
+    
     if (viewMode === 'oiling') {
-      if (status.isOiled) bg = 'bg-warning text-white border-0 shadow-sm';
-      else                 bg = 'opacity-30';
+      // 1. 박리제(기름칠) 모드일 때
+      if (status.isOiled) bg = 'bg-warning text-white border-0 shadow-sm'; // 기름칠 완료 (노란색)
+      else                 bg = 'opacity-30';                            // 작업 전 (반투명)
     } else if (viewMode === 'cleaning') {
-      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm';
-      else if (status.phase > 0)    bg = 'bg-secondary-container text-white border-0 shadow-sm animate-pulse';
-      else                          bg = 'opacity-30';
+      // 2. 청소 모드일 때
+      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm'; // 청소 완료 (초록색)
+      else if (status.phase > 0)    bg = 'bg-secondary-container text-white border-0 shadow-sm animate-pulse'; // 청소 진행 중 (보라색+깜빡임)
+      else                          bg = 'opacity-30';                            // 작업 전 (반투명)
     } else {
-      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm';
+      // 3. 현장 전체 통합 모드일 때
+      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm'; // 청소 완료가 최우선 표시
       else if (status.phase > 0)    bg = 'bg-secondary-container text-white border-0 shadow-sm animate-pulse';
-      else if (status.isOiled)      bg = 'bg-primary text-white border-0 shadow-sm';
+      else if (status.isOiled)      bg = 'bg-primary text-white border-0 shadow-sm'; // 청소 전이면 기름칠 상태 표시 (파란색)
     }
     return bg;
   };
@@ -214,13 +225,14 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
 
                       <div className="h-1 w-full bg-outline-variant/50 rounded-full my-1" />
 
-                      {/* 지상층 */}
+                      {/* 지상층 리스트 표시 */}
                       {Array.from({ length: maxFloors }).map((_, i) => {
                         const floor = i + 1;
                         const rec = summary.oiling?.find(r => r.building_id === b.id && r.floor === floor);
                         const status = { isOiled: !!rec, oilingDate: rec?.date || null, phase: 0, progress: 0, cleaningDate: null };
                         return (
                           <React.Fragment key={floor}>
+                            {/* 기성 기준선 표시 (해당 층 아래에 빨간 선이 그어집니다) */}
                             {floor === limit + 1 && (
                               <div className="w-full h-[2px] bg-error shadow-[0_0_8px_rgba(255,0,0,0.5)] my-[1px] relative z-20">
                                 <span className="absolute -right-12 top-1/2 -translate-y-1/2 text-[8px] font-bold text-error whitespace-nowrap">기성 기준</span>

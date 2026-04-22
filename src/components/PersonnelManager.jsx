@@ -9,18 +9,19 @@ const EMPTY_FORM = {
 };
 
 export default function PersonnelManager() {
-  const [records, setRecords] = useState([]);
-  const [workers, setWorkers] = useState([]);
-  const [currentMonth, setCurrentMonth] = useState(dayjs().format('YYYY-MM'));
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState(null);
-  const [editName, setEditName] = useState('');
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [selectedNames, setSelectedNames] = useState([]);
-  const [selectedCalDate, setSelectedCalDate] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [prices, setPrices] = useState([]); // { worker_name, unit_price }
-  const [editingPrice, setEditingPrice] = useState(null); // { name, price }
+  // ── 상태 관리 (데이터 및 화면 표시 제어) ──
+  const [records, setRecords] = useState([]);         // 이번 달의 모든 공수 기록 목록
+  const [workers, setWorkers] = useState([]);         // 등록된 전체 작업자 명단
+  const [currentMonth, setCurrentMonth] = useState(dayjs().format('YYYY-MM')); // 현재 조회 중인 월 (2024-04 등)
+  const [showForm, setShowForm] = useState(false);      // 공수 입력창(모달) 표시 여부
+  const [editId, setEditId] = useState(null);           // 수정 중인 기록의 고유 번호
+  const [editName, setEditName] = useState('');         // 수정 중인 작업자 이름
+  const [form, setForm] = useState(EMPTY_FORM);         // 입력창에 작성 중인 내용 (날짜, 시간 등)
+  const [selectedNames, setSelectedNames] = useState([]); // 신규 입력 시 한꺼번에 선택된 작업자들
+  const [selectedCalDate, setSelectedCalDate] = useState(null); // 달력에서 클릭하여 선택한 날짜
+  const [saving, setSaving] = useState(false);          // 저장 중인지 표시 (중복 클릭 방지)
+  const [prices, setPrices] = useState([]);             // 각 작업자별 이번 달 단가(일당) 정보
+  const [editingPrice, setEditingPrice] = useState(null); // 단가 수정 중인 정보
 
   const fetchRecords = useCallback(async () => {
     const res = await fetch(`${API_URL}/personnel?month=${currentMonth}`);
@@ -97,13 +98,14 @@ export default function PersonnelManager() {
     fetchPrices();
   };
 
+  // ── 중요한 공수 가중치 계산 로직 ──
+  // 오후 5시 이후 작업(OT, 야간) 시간에 따라 가산되는 공수(0.1, 0.5, 1.0)를 결정합니다.
   const getWeight = (ot_h, night_h) => {
-    // 요청 사항: OT 0.1, 야간 6시 0.1, 7시 0.5, 9시 1.0
-    // OT와 야간을 합쳐서 계산 (5시 이후 작업 합산)
+    // 규정: 추가 작업이 1~2시간 미만이면 +0.1, 2~4시간 미만이면 +0.5, 4시간 이상이면 +1.0공수 추가
     const extra = (ot_h || 0) + (night_h || 0);
-    if (extra >= 4) return 1.0;
-    if (extra >= 2) return 0.5;
-    if (extra >= 1) return 0.1;
+    if (extra >= 4) return 1.0;  // 예: 오후 9시까지 작업 시 1.0공수 추가 (총 2.0공수)
+    if (extra >= 2) return 0.5;  // 예: 오후 7시까지 작업 시 0.5공수 추가 (총 1.5공수)
+    if (extra >= 1) return 0.1;  // 예: 오후 6시까지 작업 시 0.1공수 추가 (총 1.1공수)
     return 0;
   };
 
@@ -116,7 +118,9 @@ export default function PersonnelManager() {
     else setSelectedNames(prev => [...new Set([...prev, ...teamNames])]);
   };
 
+  // ── 개인별 월간 통계 합산 ──
   const personStats = records.reduce((acc, r) => {
+    // 한 명씩 돌아가며 이번 달에 일한 총 시간과 공수를 합칩니다.
     if (!acc[r.name]) acc[r.name] = { 
       name: r.name, total_work: 0, total_ot: 0, total_night: 0, 
       days: 0, ot_days: 0, night_days: 0, total_weight: 0 
@@ -128,10 +132,10 @@ export default function PersonnelManager() {
     if (r.ot_hours > 0) acc[r.name].ot_days += 1;
     if (r.night_hours > 0) acc[r.name].night_days += 1;
     
-    // 가중치 합산: 실제 근무 비례(일반인 경우 1.0) + 추가 가중치(0.1, 0.5, 1.0)
+    // 최종 공수 계산: (기본 8시간 기준 공수) + (위에서 계산한 추가 가중치)
     const weight = getWeight(r.ot_hours, r.night_hours);
     acc[r.name].total_weight += (r.work_hours / 8) + weight;
-    acc[r.name].days += 1;
+    acc[r.name].days += 1; // 총 출근 일수
     return acc;
   }, {});
   const maxDays = Math.max(...Object.values(personStats).map(p => p.days), 1);

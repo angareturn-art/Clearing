@@ -3,9 +3,25 @@ import React, { useState, useEffect } from 'react';
 const API_URL = 'http://localhost:5000/api';
 
 const MasterManager = ({ buildings, onRefresh }) => {
-  const [selectedBuildingId, setSelectedBuildingId] = useState(buildings[0]?.id || '');
-  const [editData, setEditData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // ── 상태 관리 (설정 정보를 임시로 담아두는 곳) ──
+  const [selectedBuildingId, setSelectedBuildingId] = useState(buildings[0]?.id || ''); // 현재 편집 중인 건물(동)
+  const [editData, setEditData] = useState(null);                                     // 편집 중인 건물의 상세 데이터
+  const [loading, setLoading] = useState(false);                                      // 저장 중인지 표시하는 상태
+  const [siteConfig, setSiteConfig] = useState({ site_address: '', start_date: '', end_date: '' }); // 현장 공통 정보 (주소, 날짜 등)
+
+  // 처음 화면이 열릴 때 현장 설정 정보를 가져옵니다.
+  useEffect(() => {
+    fetchSiteConfig();
+  }, []);
+
+  // 서버에서 현장 설정(주소 등)을 읽어옵니다.
+  const fetchSiteConfig = async () => {
+    try {
+      const res = await fetch(`${API_URL}/site-config`);
+      const data = await res.json();
+      if (data) setSiteConfig(data);
+    } catch (err) { console.error(err); }
+  };
 
   useEffect(() => {
     if (selectedBuildingId) {
@@ -26,25 +42,84 @@ const MasterManager = ({ buildings, onRefresh }) => {
     });
   };
 
+  // ── 데이터 저장 로직 (확정 버튼 클릭 시) ──
   const handleSave = async () => {
-    setLoading(true);
+    setLoading(true); // '처리 중' 상태로 변경
     try {
-      const res = await fetch(`${API_URL}/master/save-building`, {
+      // 1. 건물/세대 마스터 정보(동 이름, 층수 등)를 서버에 저장합니다.
+      const resB = await fetch(`${API_URL}/master/save-building`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editData)
       });
-      if (res.ok) {
-        alert('기준정보가 저장되었습니다.');
-        onRefresh();
+      
+      // 2. 현장 공통 정보(현장 주소, 공사 시작/종료일)를 서버에 저장합니다.
+      const resS = await fetch(`${API_URL}/site-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(siteConfig)
+      });
+
+      if (resB.ok && resS.ok) {
+        alert('기준정보 및 현장 설정이 저장되었습니다.');
+        fetchSiteConfig(); // 저장된 최신 현장 정보를 다시 불러옵니다.
+        onRefresh();       // 상위 화면(앱 전체)의 데이터를 새로고침합니다.
       } else {
-        alert('저장 중 오류가 발생했습니다.');
+        alert('저장 중 일부 오류가 발생했습니다.');
       }
-    } catch (err) { console.error(err); } finally { setLoading(false); }
+    } catch (err) { 
+      console.error('저장 실패:', err); 
+      alert('서버와 통신하는 중 오류가 발생했습니다.');
+    } finally { 
+      setLoading(false); // 처리가 끝나면 버튼을 다시 활성화합니다.
+    }
   };
 
   return (
-    <div className="animate-fade-in grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <div className="animate-fade-in space-y-8">
+      {/* ── Site Common Info Section ── */}
+      <section className="bg-surface-container-lowest p-8 shadow-[0_4px_24px_rgba(0,0,0,0.04)] relative overflow-hidden rounded">
+        <div className="absolute top-0 left-0 w-1 h-full bg-tertiary"></div>
+        <div className="flex items-center gap-2 mb-8">
+          <span className="material-symbols-outlined text-tertiary">location_on</span>
+          <h3 className="font-label text-sm font-bold uppercase tracking-widest text-tertiary">현장 공통 정보</h3>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 group">
+            <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2 group-focus-within:text-tertiary transition-colors">현장 위치 (주소)</label>
+            <input 
+              className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2 placeholder:text-outline-variant/60" 
+              type="text" 
+              placeholder="도로명 주소 또는 지번 입력" 
+              value={siteConfig.site_address || ''} 
+              onChange={(e) => setSiteConfig({ ...siteConfig, site_address: e.target.value })} 
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="group">
+              <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2 group-focus-within:text-tertiary transition-colors">공사 시작일</label>
+              <input 
+                className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2" 
+                type="date" 
+                value={siteConfig.start_date || ''} 
+                onChange={(e) => setSiteConfig({ ...siteConfig, start_date: e.target.value })} 
+              />
+            </div>
+            <div className="group">
+              <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2 group-focus-within:text-tertiary transition-colors">공사 종료일</label>
+              <input 
+                className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2" 
+                type="date" 
+                value={siteConfig.end_date || ''} 
+                onChange={(e) => setSiteConfig({ ...siteConfig, end_date: e.target.value })} 
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
       {/* Left Column: Form & Houses */}
       <div className="lg:col-span-8 space-y-8">
         <section className="bg-surface-container-lowest p-8 shadow-[0_4px_24px_rgba(0,0,0,0.04)] relative overflow-hidden rounded">
@@ -175,9 +250,9 @@ const MasterManager = ({ buildings, onRefresh }) => {
           {loading ? '처리 중...' : '마스터 데이터 확정'}
         </button>
       </div>
-
     </div>
-  );
+  </div>
+);
 };
 
 export default MasterManager;
