@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -22,7 +23,7 @@ const EMPTY_FORM = {
   specialty: '세대청소', status: 'active', memo: ''
 };
 
-export default function WorkerManager() {
+export default function WorkerManager({ currentSite }) {
   const [workers, setWorkers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId]   = useState(null);
@@ -31,11 +32,21 @@ export default function WorkerManager() {
   const [filterRole, setFilterRole]     = useState('');
   const [search, setSearch]             = useState('');
   const [viewMode, setViewMode]         = useState('card'); // 'card' | 'table'
+  const [showWageModal, setShowWageModal] = useState(false);
+  const [wageHistory, setWageHistory]   = useState([]);
+  const [selectedWorker, setSelectedWorker] = useState(null);
+  const [wageForm, setWageForm] = useState({ effective_date: dayjs().format('YYYY-MM-DD'), unit_price: 0 });
 
   useEffect(() => { fetch_workers(); }, []);
 
   const fetch_workers = async () => {
-    const res  = await fetch(`${API_URL}/workers`);
+    const token = localStorage.getItem('ba_token');
+    const res  = await fetch(`${API_URL}/workers`, {
+      headers: {
+        'X-Site-Id': currentSite?.id,
+        'Authorization': `Bearer ${token}`
+      }
+    });
     const data = await res.json();
     setWorkers(data || []);
   };
@@ -56,14 +67,25 @@ export default function WorkerManager() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const token = localStorage.getItem('ba_token');
     if (editId) {
       await fetch(`${API_URL}/workers/${editId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        method: 'PUT', 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Site-Id': currentSite?.id,
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(form)
       });
     } else {
       await fetch(`${API_URL}/workers`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Site-Id': currentSite?.id,
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(form)
       });
     }
@@ -73,8 +95,58 @@ export default function WorkerManager() {
 
   const handleDelete = async (id) => {
     if (!window.confirm('작업자를 삭제하시겠습니까?')) return;
-    await fetch(`${API_URL}/workers/${id}`, { method: 'DELETE' });
+    const token = localStorage.getItem('ba_token');
+    await fetch(`${API_URL}/workers/${id}`, { 
+      method: 'DELETE',
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     fetch_workers();
+  };
+
+  /* ── 단가 관리 로직 */
+  const openWageModal = async (w) => {
+    try {
+      setSelectedWorker(w);
+      const token = localStorage.getItem('ba_token');
+      const res = await fetch(`${API_URL}/worker-prices/history/${encodeURIComponent(w.name)}`, {
+        headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('데이터를 불러오는데 실패했습니다.');
+      const data = await res.json();
+      setWageHistory(data || []);
+      setWageForm({ effective_date: dayjs().format('YYYY-MM-DD'), unit_price: data[0]?.unit_price || 0 });
+      setShowWageModal(true);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleWageSubmit = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('ba_token');
+    await fetch(`${API_URL}/worker-prices`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json', 
+        'Authorization': `Bearer ${token}`,
+        'X-Site-Id': currentSite?.id
+      },
+      body: JSON.stringify({ ...wageForm, worker_name: selectedWorker.name })
+    });
+    openWageModal(selectedWorker); // 목록 새로고침
+  };
+
+  const handleWageDelete = async (id) => {
+    if (!window.confirm('이 단가 기록을 삭제하시겠습니까?')) return;
+    const token = localStorage.getItem('ba_token');
+    await fetch(`${API_URL}/worker-prices/${id}`, {
+      method: 'DELETE',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'X-Site-Id': currentSite?.id
+      }
+    });
+    openWageModal(selectedWorker);
   };
 
   /* ── 필터 */
@@ -263,6 +335,11 @@ export default function WorkerManager() {
 
                         {/* 하단 액션 */}
                         <div className="border-t border-outline-variant/20 flex">
+                          <button onClick={() => openWageModal(w)}
+                            className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-primary hover:bg-primary/5 transition-colors font-label text-[10px] uppercase tracking-wider">
+                            <span className="material-symbols-outlined text-sm">payments</span> 단가
+                          </button>
+                          <div className="w-px bg-outline-variant/20"></div>
                           <button onClick={() => openEdit(w)}
                             className="flex-1 py-2.5 flex items-center justify-center gap-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors font-label text-[10px] uppercase tracking-wider">
                             <span className="material-symbols-outlined text-sm">edit</span> 수정
@@ -478,6 +555,62 @@ export default function WorkerManager() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── 단가 관리 모달 */}
+      {showWageModal && (
+        <div className="fixed inset-0 bg-surface-variant/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-surface-container-lowest w-full max-w-md shadow-2xl rounded-2xl overflow-hidden border border-outline-variant/20">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary flex items-center gap-2">
+                    <span className="material-symbols-outlined">payments</span>
+                    단가 변동 이력
+                  </h3>
+                  <p className="text-xs text-on-surface-variant font-bold mt-1">{selectedWorker?.name} 작업자</p>
+                </div>
+                <button onClick={() => setShowWageModal(false)}>
+                  <span className="material-symbols-outlined text-outline hover:text-on-surface">close</span>
+                </button>
+              </div>
+
+              {/* 단가 추가 폼 */}
+              <form onSubmit={handleWageSubmit} className="grid grid-cols-2 gap-3 mb-8 p-4 bg-surface-container rounded-xl">
+                <div className="col-span-2 text-[10px] font-bold text-primary uppercase tracking-wider mb-1">새 단가 등록</div>
+                <div>
+                  <label className="block text-[9px] text-outline mb-1">적용 시작일</label>
+                  <input type="date" required className="w-full bg-surface py-2 px-2 rounded text-xs font-bold border-0 focus:ring-1 focus:ring-primary"
+                    value={wageForm.effective_date} onChange={e => setWageForm({...wageForm, effective_date: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-[9px] text-outline mb-1">일당 (단가)</label>
+                  <input type="number" required className="w-full bg-surface py-2 px-2 rounded text-xs font-bold border-0 focus:ring-1 focus:ring-primary"
+                    value={wageForm.unit_price} onChange={e => setWageForm({...wageForm, unit_price: e.target.value})} />
+                </div>
+                <button type="submit" className="col-span-2 bg-primary text-white py-2 rounded font-label text-[10px] font-bold uppercase tracking-widest mt-2 shadow-sm">
+                  저장하기
+                </button>
+              </form>
+
+              {/* 이력 리스트 */}
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                <p className="text-[10px] font-bold text-outline uppercase tracking-wider">과거 이력</p>
+                {wageHistory.map(h => (
+                  <div key={h.id} className="flex items-center justify-between p-3 bg-surface rounded-lg border border-outline-variant/10 group">
+                    <div>
+                      <p className="text-xs font-bold text-on-surface">{dayjs(h.effective_date).format('YYYY년 MM월 DD일')}</p>
+                      <p className="text-[10px] text-outline">적용 단가: <span className="text-primary font-bold">{h.unit_price.toLocaleString()}원</span></p>
+                    </div>
+                    <button onClick={() => handleWageDelete(h.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-error hover:bg-error/10 p-1 rounded">
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                  </div>
+                ))}
+                {wageHistory.length === 0 && <p className="text-center text-xs text-outline py-4">등록된 이력이 없습니다.</p>}
+              </div>
             </div>
           </div>
         </div>

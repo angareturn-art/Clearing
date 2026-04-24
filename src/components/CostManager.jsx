@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 
 const API_URL = 'http://localhost:5000/api';
 
-const CostManager = () => {
+const CostManager = ({ currentSite }) => {
   const [costs, setCosts] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(dayjs().format('YYYY-MM'));
   const [showForm, setShowForm] = useState(false);
@@ -24,7 +24,10 @@ const CostManager = () => {
   }, [currentMonth]);
 
   const fetchCosts = async () => {
-    const res = await fetch(`${API_URL}/costs?month=${currentMonth}`);
+    const token = localStorage.getItem('ba_token');
+    const res = await fetch(`${API_URL}/costs?month=${currentMonth}`, {
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     const data = await res.json();
     setCosts(data || []);
   };
@@ -32,16 +35,25 @@ const CostManager = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = { ...form, amount: parseInt(form.amount) || 0 };
+    const token = localStorage.getItem('ba_token');
     if (editId) {
       await fetch(`${API_URL}/costs/${editId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Site-Id': currentSite?.id,
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload)
       });
     } else {
       await fetch(`${API_URL}/costs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Site-Id': currentSite?.id,
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload)
       });
     }
@@ -53,7 +65,11 @@ const CostManager = () => {
 
   const handleDelete = async (id) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
-    await fetch(`${API_URL}/costs/${id}`, { method: 'DELETE' });
+    const token = localStorage.getItem('ba_token');
+    await fetch(`${API_URL}/costs/${id}`, { 
+      method: 'DELETE',
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     fetchCosts();
   };
 

@@ -83,23 +83,26 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
   // ── 동별(건물별) 상세 진행률 계산 ──
   const buildingProgress = buildings.map(b => {
     // 1. 해당 한 개 동의 전체 작업 공간(청소 기준: 모든 호수 x 층수)을 구합니다.
-    const totalFloors = b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0);
+    const bBasementCount = Number(b.basement_count) || 0;
+    const totalFloors = b.houses.reduce((a, h) => a + (Number(h.floors) || 0) + bBasementCount, 0);
 
     // 기름칠은 건물 자체의 층 단위로 관리하므로 기준을 다르게 잡습니다.
-    const maxGroundFloor = Math.max(...b.houses.map(h => h.floors), 0);
-    const totalFloorsForOiling = maxGroundFloor + (b.basement_count || 0);
+    const maxGroundFloor = Math.max(...b.houses.map(h => Number(h.floors) || 0), 0);
+    const totalFloorsForOiling = maxGroundFloor + bBasementCount;
 
     // 2. 해당 동에서 기름칠 기록이 있는 층의 개수를 셉니다.
-    const oiledFloors = [...Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i)),
+    const oiledFloors = [...Array.from({ length: bBasementCount }).map((_, i) => -(bBasementCount - i)),
     ...Array.from({ length: maxGroundFloor }).map((_, i) => i + 1)]
       .filter(f => summary.oiling?.some(r => r.building_id === b.id && r.floor === f)).length;
 
     // 3. 해당 동에서 청소가 완료된 세대 수를 더합니다 (50% 완료는 0.5세대 등으로 합산).
     const cleanedFloors = b.houses.reduce((a, h) => {
-      const hAllFloors = [...Array.from({ length: b.basement_count || 0 }).map((_, i) => -(b.basement_count - i)),
-      ...Array.from({ length: h.floors }).map((_, i) => i + 1)];
+      const hFloors = Number(h.floors) || 0;
+      const hAllFloors = [...Array.from({ length: bBasementCount }).map((_, i) => -(bBasementCount - i)),
+      ...Array.from({ length: hFloors }).map((_, i) => i + 1)];
       return a + hAllFloors.reduce((sum, f) => {
-        const maxProg = Math.max(...(summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f).map(r => r.progress) || [0]));
+        const relevant = summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f) || [];
+        const maxProg = relevant.length > 0 ? Math.max(...relevant.map(r => r.progress)) : 0;
         return sum + (maxProg / 100);
       }, 0);
     }, 0);
@@ -113,6 +116,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
       oilRate: totalFloorsForOiling > 0 ? Math.round((oiledFloors / totalFloorsForOiling) * 100) : 0,
       cleanRate: totalFloors > 0 ? Math.round((cleanedFloors / totalFloors) * 100) : 0,
     };
+
   });
 
   return (
@@ -174,6 +178,67 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
           </div>
         ))}
       </div>
+
+      {/* 🏗️ 갱폼 인양 대비 청소 필요 층 알림 */}
+      {(() => {
+        const targets = buildings.map(b => {
+          const liftingRecords = summary.lifting?.filter(r => r.building_id === b.id) || [];
+          if (liftingRecords.length === 0) return null;
+          
+          const maxLiftingFloor = Math.max(...liftingRecords.map(r => r.floor));
+          
+          // 2개 층 아래 계산 (지하층 고려)
+          const bBasementCount = b.basement_count || 0;
+          const maxGround = Math.max(...b.houses.map(h => Number(h.floors) || 0), 0);
+          const allFloors = [
+            ...Array.from({ length: bBasementCount }).map((_, i) => -(bBasementCount - i)),
+            ...Array.from({ length: maxGround }).map((_, i) => i + 1)
+          ].sort((a, b) => a - b);
+
+          const curIdx = allFloors.indexOf(maxLiftingFloor);
+          const targetFloor = curIdx >= 2 ? allFloors[curIdx - 2] : null;
+          
+          if (targetFloor === null) return null;
+
+          // 해당 층의 청소 상태 확인
+          const housesOnFloor = b.houses.length; // 대략적인 세대수 (모든 호수가 해당 층에 있다고 가정)
+          const completedOnFloor = summary.cleaning?.filter(r => r.building_id === b.id && r.floor === targetFloor && r.progress === 100).length || 0;
+          
+          if (completedOnFloor < housesOnFloor) {
+            return { building: b.name, lifting: maxLiftingFloor, target: targetFloor, remaining: housesOnFloor - completedOnFloor };
+          }
+          return null;
+        }).filter(Boolean);
+
+        if (targets.length === 0) return null;
+
+        return (
+          <div className="bg-error/5 border border-error/20 rounded-lg p-5 animate-pulse-subtle">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="material-symbols-outlined text-error">notification_important</span>
+              <h3 className="font-label text-sm font-bold uppercase tracking-widest text-error">금일 청소 필요 대상 (인양 공정 연동)</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {targets.map((t, i) => (
+                <div key={i} className="bg-white/50 backdrop-blur-sm p-4 rounded-lg border border-error/10 flex justify-between items-center">
+                  <div>
+                    <p className="text-[10px] font-bold text-error uppercase tracking-widest mb-1">{t.building}</p>
+                    <p className="text-sm font-bold text-on-surface">
+                      {t.lifting > 0 ? t.lifting + 'F' : 'B' + Math.abs(t.lifting)} 인양 완료 
+                      <span className="mx-2 text-outline">→</span>
+                      <span className="text-error">{t.target > 0 ? t.target + 'F' : 'B' + Math.abs(t.target)} 청소</span>
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-outline uppercase">미완료</p>
+                    <p className="text-lg font-black text-error">{t.remaining}세대</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 동별 진행률 */}
       <div className="bg-surface-container-lowest rounded-lg p-6 shadow-sm border border-outline-variant/20">

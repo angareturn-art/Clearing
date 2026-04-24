@@ -8,7 +8,7 @@ const EMPTY_FORM = {
   work_hours: 8, ot_hours: 0, night_hours: 0, memo: ''
 };
 
-export default function PersonnelManager() {
+export default function PersonnelManager({ currentSite }) {
   // ── 상태 관리 (데이터 및 화면 표시 제어) ──
   const [records, setRecords] = useState([]);         // 이번 달의 모든 공수 기록 목록
   const [workers, setWorkers] = useState([]);         // 등록된 전체 작업자 명단
@@ -24,25 +24,42 @@ export default function PersonnelManager() {
   const [editingPrice, setEditingPrice] = useState(null); // 단가 수정 중인 정보
 
   const fetchRecords = useCallback(async () => {
-    const res = await fetch(`${API_URL}/personnel?month=${currentMonth}`);
+    const token = localStorage.getItem('ba_token');
+    const res = await fetch(`${API_URL}/personnel?month=${currentMonth}`, {
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     const data = await res.json();
     setRecords(data || []);
-  }, [currentMonth]);
+  }, [currentMonth, currentSite]);
 
   const fetchWorkers = async () => {
-    const res = await fetch(`${API_URL}/workers?status=active`);
+    const token = localStorage.getItem('ba_token');
+    const res = await fetch(`${API_URL}/workers?status=active`, {
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     const data = await res.json();
     setWorkers(data || []);
   };
 
   const fetchPrices = useCallback(async () => {
-    const res = await fetch(`${API_URL}/worker-prices?month=${currentMonth}`);
+    const token = localStorage.getItem('ba_token');
+    const res = await fetch(`${API_URL}/worker-prices?month=${currentMonth}`, {
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     const data = await res.json();
     setPrices(data || []);
-  }, [currentMonth]);
+  }, [currentMonth, currentSite]);
 
   useEffect(() => { fetchRecords(); fetchPrices(); }, [fetchRecords, fetchPrices]);
   useEffect(() => { fetchWorkers(); }, []);
+
+  const resetForm = () => {
+    setForm(EMPTY_FORM);
+    setSelectedNames([]);
+    setEditId(null);
+    setEditName('');
+    setShowForm(false);
+  };
 
   const openAdd = (date = dayjs().format('YYYY-MM-DD')) => {
     setForm({ ...EMPTY_FORM, date });
@@ -78,8 +95,7 @@ export default function PersonnelManager() {
       }
     }
     setSaving(false);
-    setShowForm(false);
-    setEditId(null);
+    resetForm();
     fetchRecords();
   };
 
@@ -89,10 +105,19 @@ export default function PersonnelManager() {
     fetchRecords();
   };
 
-  const handlePriceSave = async (worker_name, unit_price) => {
+  const handlePriceSave = async (worker_name, unit_price, effective_date) => {
+    const token = localStorage.getItem('ba_token');
     await fetch(`${API_URL}/worker-prices`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ worker_name, month: currentMonth, unit_price: parseInt(unit_price) || 0 })
+      method: 'POST', 
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ 
+        worker_name, 
+        effective_date: effective_date || dayjs().format('YYYY-MM-DD'), 
+        unit_price: parseInt(unit_price) || 0 
+      })
     });
     setEditingPrice(null);
     fetchPrices();
@@ -225,14 +250,20 @@ export default function PersonnelManager() {
                       <td className="py-3 px-4 font-body text-primary font-bold">{(p.total_weight - p.days).toFixed(1)}</td>
                       <td className="py-3 px-4 text-sm">
                         {editingPrice?.name === p.name ? (
-                          <div className="flex items-center gap-1">
-                            <input autoFocus type="number" className="w-24 bg-surface border rounded px-2 py-1 text-xs" 
-                              value={editingPrice.price} onChange={e => setEditingPrice({...editingPrice, price: e.target.value})} />
-                            <button onClick={() => handlePriceSave(p.name, editingPrice.price)} className="text-success"><span className="material-symbols-outlined text-sm">check</span></button>
-                            <button onClick={() => setEditingPrice(null)} className="text-error"><span className="material-symbols-outlined text-sm">close</span></button>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                              <input autoFocus type="number" className="w-24 bg-surface-container-low border border-outline-variant/30 rounded px-2 py-1 text-xs font-bold" 
+                                placeholder="단가"
+                                value={editingPrice.price} onChange={e => setEditingPrice({...editingPrice, price: e.target.value})} />
+                              <button onClick={() => handlePriceSave(p.name, editingPrice.price, editingPrice.date)} className="text-success hover:bg-success/10 p-1 rounded"><span className="material-symbols-outlined text-sm">check</span></button>
+                              <button onClick={() => setEditingPrice(null)} className="text-error hover:bg-error/10 p-1 rounded"><span className="material-symbols-outlined text-sm">close</span></button>
+                            </div>
+                            <input type="date" className="w-24 bg-surface-container-low border border-outline-variant/30 rounded px-2 py-1 text-[10px] font-bold" 
+                              value={editingPrice.date || dayjs().format('YYYY-MM-DD')} 
+                              onChange={e => setEditingPrice({...editingPrice, date: e.target.value})} />
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 group/price cursor-pointer" onClick={() => setEditingPrice({ name: p.name, price })}>
+                          <div className="flex items-center gap-2 group/price cursor-pointer" onClick={() => setEditingPrice({ name: p.name, price, date: dayjs().format('YYYY-MM-DD') })}>
                             <span className="font-label font-bold text-on-surface">{price.toLocaleString()}원</span>
                             <span className="material-symbols-outlined text-[12px] text-outline opacity-0 group-hover/price:opacity-100 transition-opacity">edit</span>
                           </div>
@@ -428,7 +459,7 @@ export default function PersonnelManager() {
                   <span className="material-symbols-outlined">{editId ? 'edit' : 'group_add'}</span>
                   {editId ? `공수 수정 · ${editName}` : `공수 추가 · ${form.date}`}
                 </h3>
-                <button onClick={() => { setShowForm(false); setEditId(null); }}>
+                <button onClick={resetForm}>
                   <span className="material-symbols-outlined text-outline hover:text-on-surface transition-colors">close</span>
                 </button>
               </div>

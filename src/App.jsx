@@ -11,6 +11,8 @@ import EmergencyContacts from './components/EmergencyContacts';
 import LoginPage from './components/LoginPage';
 import WorkerManager from './components/WorkerManager';
 import PaymentStatus from './components/PaymentStatus';
+import SiteSelector from './components/SiteSelector';
+import AdvancedElevationView from './components/AdvancedElevationView';
 
 dayjs.locale('ko');
 
@@ -31,6 +33,7 @@ const parseFloor = (f) => {
 const TABS = [
   { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },      // 현지 현황 요약
   { id: 'elevation',  label: '배치도',    icon: 'grid_view' },      // 건물별 진행 상태 그리드
+  { id: 'visual_blueprint', label: '시각적 현황', icon: 'visibility' }, // 고도화 배치도
   { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' }, // 날짜별 작업 내역
   { id: 'records',    label: '기록',      icon: 'description' },    // 상세 기록 목록 및 관리
   { id: 'cost',       label: '비용',      icon: 'payments' },       // 현장 비용 관리
@@ -49,6 +52,10 @@ function App() {
   });
 
   const [activeTab, setActiveTab] = useState('dashboard');   // 현재 보고 있는 메뉴 탭
+  const [currentSite, setCurrentSite] = useState(() => {
+    const stored = localStorage.getItem('ba_current_site');
+    return stored ? JSON.parse(stored) : null;
+  });
   const [viewMode, setViewMode] = useState('total');         // 배치도 보기 모드 (통합/기름칠/청소)
   const [buildings, setBuildings] = useState([]);             // 건물(동) 전체 정보
   const [summary, setSummary] = useState({ oiling: [], cleaning: [], lifting: [] }); // 각 공정별 집계 요약
@@ -84,51 +91,60 @@ function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && currentSite) {
       fetchBaseData();
       fetchSummary();
       fetchSiteConfig();
     }
-  }, [currentUser]);
+  }, [currentUser, currentSite]);
 
   useEffect(() => {
     if (activeTab === 'records') fetchRecords();
   }, [activeTab, filterDate, filterBuilding, modalType]);
 
-  // ── 서버 데이터 가져오기 (API 통신) ──
+  const fetchWithSite = async (url, options = {}) => {
+    if (!currentSite) return null;
+    const token = localStorage.getItem('ba_token');
+    const headers = {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
+      'X-Site-Id': currentSite.id
+    };
+    return fetch(url, { ...options, headers });
+  };
 
-  // 1. 건물 및 세대 기본 정보를 가져옵니다.
   const fetchBaseData = async () => {
     try {
-      const res = await fetch(`${API_URL}/data`);
+      const res = await fetchWithSite(`${API_URL}/master/buildings`);
+      if (!res) return;
       const data = await res.json();
       setBuildings(data || []);
     } catch (err) { console.error('기본 정보 로드 실패:', err); }
   };
 
-  // 2. 현재 공정별 요약 데이터(누가 어디서 작업했는지 등)를 가져옵니다.
   const fetchSummary = async () => {
     try {
-      const res = await fetch(`${API_URL}/status/summary`);
+      const res = await fetchWithSite(`${API_URL}/status/summary`);
+      if (!res) return;
       const data = await res.json();
       setSummary(data || { oiling: [], cleaning: [], lifting: [] });
     } catch (err) { console.error('요약 데이터 로드 실패:', err); }
   };
 
-  // 3. 현장 공통 설정(주소, 공기 등) 정보를 가져옵니다.
   const fetchSiteConfig = async () => {
     try {
-      const res = await fetch(`${API_URL}/site-config`);
+      const res = await fetchWithSite(`${API_URL}/site-config`);
+      if (!res) return;
       const data = await res.json();
       setSiteConfig(data);
     } catch (err) { console.error('현장 설정 로드 실패:', err); }
   };
 
-  // 4. 상세 작업 내역 리스트를 가져옵니다 (필터 기준).
   const fetchRecords = async () => {
     try {
       const params = new URLSearchParams({ date: filterDate, buildingId: filterBuilding });
-      const res = await fetch(`${API_URL}/records/${modalType}?${params}`);
+      const res = await fetchWithSite(`${API_URL}/records/${modalType}?${params}`);
+      if (!res) return;
       const data = await res.json();
       setRecords(data || []);
     } catch (err) { console.error('기록 로드 실패:', err); }
@@ -306,14 +322,40 @@ function App() {
 
   return (
     <>
+      {/* ── 현장 선택 레이어 (로그인 후 현장 미선택 시) ── */}
+      {currentUser && !currentSite && (
+        <SiteSelector onSelect={(site) => {
+          setCurrentSite(site);
+          localStorage.setItem('ba_current_site', JSON.stringify(site));
+        }} />
+      )}
+
       {/* 상단 헤더 */}
       <header className="bg-surface-container-highest transition-colors duration-150 ease-in-out flex justify-between items-center w-full px-4 md:px-6 h-16 sticky top-0 z-50 border-b border-outline-variant/20">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-            <span className="material-symbols-outlined text-primary text-sm">architecture</span>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
+              <span className="material-symbols-outlined text-primary text-sm">architecture</span>
+            </div>
+            <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline hidden sm:block">The Blueprint Authority</h1>
+            <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline sm:hidden">TBA</h1>
           </div>
-          <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline hidden sm:block">The Blueprint Authority</h1>
-          <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline sm:hidden">TBA</h1>
+
+          {currentSite && (
+            <div className="hidden lg:flex items-center gap-2 bg-surface-container px-3 py-1.5 rounded-lg border border-outline-variant/20 group cursor-pointer" onClick={() => { setCurrentSite(null); localStorage.removeItem('ba_current_site'); }}>
+              <span className="material-symbols-outlined text-primary text-xs">apartment</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-label font-bold text-primary truncate max-w-[150px]">{currentSite.name}</span>
+                {currentSite.subcontractor && (
+                  <>
+                    <span className="w-[1px] h-3 bg-outline-variant/30"></span>
+                    <span className="text-[10px] font-label font-bold text-on-surface-variant truncate max-w-[100px]">{currentSite.subcontractor}</span>
+                  </>
+                )}
+              </div>
+              <span className="material-symbols-outlined text-[10px] text-outline group-hover:text-primary transition-colors ml-1">sync_alt</span>
+            </div>
+          )}
         </div>
 
         {/* PC 네비게이션 */}
@@ -375,13 +417,27 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'visual_blueprint' && (
+          <AdvancedElevationView buildings={buildings} summary={summary} onCellClick={handleCellClick} />
+        )}
+
         {activeTab === 'settings' && (
-          <MasterManager buildings={buildings} onRefresh={() => { fetchBaseData(); fetchSummary(); fetchSiteConfig(); }} siteConfig={siteConfig} />
+          <MasterManager 
+            buildings={buildings} 
+            onRefresh={() => { fetchBaseData(); fetchSummary(); fetchSiteConfig(); }} 
+            siteConfig={siteConfig} 
+            currentUser={currentUser}
+            currentSite={currentSite}
+            onSiteUpdate={(site) => {
+              setCurrentSite(site);
+              localStorage.setItem('ba_current_site', JSON.stringify(site));
+            }}
+          />
         )}
         {activeTab === 'calendar' && <CalendarView summary={summary} />}
-        {activeTab === 'cost' && <CostManager />}
-        {activeTab === 'personnel' && <PersonnelManager />}
-        {activeTab === 'workers' && <WorkerManager />}
+        {activeTab === 'cost' && <CostManager currentSite={currentSite} />}
+        {activeTab === 'personnel' && <PersonnelManager currentSite={currentSite} />}
+        {activeTab === 'workers' && <WorkerManager currentSite={currentSite} />}
         {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} />}
         {activeTab === 'emergency' && <EmergencyContacts />}
 

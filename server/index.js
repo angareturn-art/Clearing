@@ -1,4 +1,5 @@
 const express = require('express');
+const dayjs = require('dayjs');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
@@ -28,7 +29,11 @@ function logErrorToFile(error, type = 'Server') {
   }
 }
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Site-Id']
+}));
 app.use(express.json({ limit: '20mb' }));
 
 // ── 데이터베이스 연결 (현장 관리 데이터가 저장되는 곳) ──
@@ -39,6 +44,18 @@ db.pragma('foreign_keys = ON');
 // ── 프로그램 실행 시 필요한 데이터 테이블(장부) 자동 생성 ──
 // 각 테이블은 현장의 특정 정보를 담는 '디지털 장부'와 같습니다.
 db.exec(`
+  CREATE TABLE IF NOT EXISTS sites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    primary_contractor TEXT,
+    subcontractor TEXT,
+    address TEXT,
+    start_date TEXT,
+    end_date TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
@@ -50,6 +67,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS buildings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER DEFAULT 1,
     name TEXT NOT NULL,
     address TEXT,
     basement_count INTEGER DEFAULT 0,
@@ -58,6 +76,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS houses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER DEFAULT 1,
     building_id INTEGER NOT NULL,
     ho TEXT NOT NULL,
     line INTEGER DEFAULT 1,
@@ -182,6 +201,16 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 
+  CREATE TABLE IF NOT EXISTS worker_wage_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER DEFAULT 1,
+    worker_name TEXT NOT NULL,
+    unit_price INTEGER NOT NULL,
+    effective_date TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(site_id, worker_name, effective_date)
+  );
+
   CREATE TABLE IF NOT EXISTS site_config (
     key TEXT PRIMARY KEY,
     value TEXT,
@@ -189,14 +218,80 @@ db.exec(`
   );
 `);
 
+// ── 기존 테이블 site_id 마이그레이션 ──
+[
+  'buildings', 'houses', 'oiling_records', 'cleaning_records', 'lifting_records', 
+  'cost_records', 'personnel_records', 'workers', 'worker_wage_history'
+].forEach(table => {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!info.some(c => c.name === 'site_id')) {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN site_id INTEGER DEFAULT 1`);
+      console.log(`✅ Migrated table ${table}: added site_id`);
+    } catch (e) { console.error(`Failed to migrate ${table}:`, e.message); }
+  }
+});
+
+// ── worker_wage_history 제약 조건 고도화 마이그레이션 ──
+const wwhIndices = db.prepare("PRAGMA index_list('worker_wage_history')").all();
+let needsWwhUpdate = true;
+for (const idx of wwhIndices) {
+  const cols = db.prepare(`PRAGMA index_info('${idx.name}')`).all();
+  if (cols.some(c => c.name === 'site_id') && cols.some(c => c.name === 'worker_name')) {
+    needsWwhUpdate = false;
+    break;
+  }
+}
+if (needsWwhUpdate) {
+  try {
+    db.exec(`
+      CREATE TABLE wwh_backup (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id INTEGER DEFAULT 1,
+        worker_name TEXT NOT NULL,
+        unit_price INTEGER NOT NULL,
+        effective_date TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now','localtime')),
+        UNIQUE(site_id, worker_name, effective_date)
+      );
+      INSERT OR REPLACE INTO wwh_backup (id, site_id, worker_name, unit_price, effective_date, created_at)
+      SELECT id, site_id, worker_name, unit_price, effective_date, created_at FROM worker_wage_history;
+      DROP TABLE worker_wage_history;
+      ALTER TABLE wwh_backup RENAME TO worker_wage_history;
+    `);
+    console.log('✅ Migrated worker_wage_history: Added site_id to UNIQUE constraint');
+  } catch (e) { console.error('Failed to migrate wwh constraints:', e.message); }
+}
+
+// ── sites 테이블 누락 컬럼 마이그레이션 ──
+const siteInfo = db.prepare('PRAGMA table_info(sites)').all();
+const missingSiteCols = ['address', 'start_date', 'end_date'];
+missingSiteCols.forEach(col => {
+  if (!siteInfo.some(c => c.name === col)) {
+    try {
+      db.exec(`ALTER TABLE sites ADD COLUMN ${col} TEXT`);
+      console.log(`✅ Migrated sites table: added ${col}`);
+    } catch (e) { console.error(`Failed to migrate sites (${col}):`, e.message); }
+  }
+});
+
+// ── 초기 현장 데이터 생성 ──
+const siteCount = db.prepare('SELECT COUNT(*) as c FROM sites').get();
+if (siteCount.c === 0) {
+  db.prepare('INSERT INTO sites (id, name, primary_contractor, subcontractor) VALUES (1, ?, ?, ?)')
+    .run('기본 현장', '원청사 미지정', '하청사 미지정');
+  console.log('✅ Default site created');
+}
+
 // ── 프로그램 기본 정보 자동 입력 (동/호수/계정 초기화) ──
 const bCount = db.prepare('SELECT COUNT(*) as c FROM buildings').get();
 if (bCount.c === 0) {
-  const insertB = db.prepare('INSERT INTO buildings (name, address, basement_count) VALUES (?,?,?)');
-  const insertH = db.prepare('INSERT INTO houses (building_id, ho, line, floors, basement_label_b1, basement_label_b2) VALUES (?,?,?,?,?,?)');
+  const insertB = db.prepare('INSERT INTO buildings (site_id, name, address, basement_count) VALUES (?,?,?,?)');
+  const insertH = db.prepare('INSERT INTO houses (site_id, building_id, ho, line, floors, basement_label_b1, basement_label_b2) VALUES (?,?,?,?,?,?,?)');
 
   const buildingData = [
     {
+      site_id: 1,
       name: '1동', houses: [
         { ho: '1호', floors: 17 },
         { ho: '2호', floors: 17 },
@@ -266,9 +361,10 @@ if (bCount.c === 0) {
   ];
 
   buildingData.forEach(b => {
-    const res = insertB.run(b.name, '', 0);
+    const bResult = insertB.run(b.site_id || 1, b.name, b.address || '', b.basement_count || 0);
+    const bId = bResult.lastInsertRowid;
     b.houses.forEach((h, i) => {
-      insertH.run(res.lastInsertRowid, h.ho, i + 1, h.floors, 'B1', 'B2');
+      insertH.run(b.site_id || 1, bId, h.ho, h.line || i + 1, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2');
     });
   });
 }
@@ -297,6 +393,15 @@ if (ecCount.c === 0) {
   ].forEach(r => insertEC.run(...r));
 }
 
+// ── 초기 관리자 계정 자동 생성 ──
+const adminCount = db.prepare('SELECT COUNT(*) as c FROM users WHERE role=\'admin\'').get();
+if (adminCount.c === 0) {
+  const hash = bcrypt.hashSync('admin1234!', 10);
+  db.prepare('INSERT INTO users (email, password, name, role) VALUES (?,?,?,?)')
+    .run('admin@clearing.com', hash, '관리자', 'admin');
+  console.log('✅ Default admin account created: admin@clearing.com / admin1234!');
+}
+
 // ── Auth 미들웨어 ──
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -309,8 +414,19 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-// ── 인증 API (로그인 및 회원가입) ──
-app.post('/api/auth/register', async (req, res) => {
+// ── Site 미들웨어 (요청에서 현장 ID 추출) ──
+const siteMiddleware = (req, res, next) => {
+  req.siteId = req.headers['x-site-id'] || 1;
+  next();
+};
+
+app.use(siteMiddleware); // 모든 API에 글로벌하게 적용
+
+app.use(siteMiddleware);
+app.post('/api/auth/register', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: '관리자만 회원을 등록할 수 있습니다.' });
+  }
   const { email, password, name, role } = req.body;
   try {
     const hash = await bcrypt.hash(password, 10);
@@ -332,10 +448,10 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
 });
 
-// ── 기준 정보
-app.get('/api/data', (req, res) => {
-  const buildings = db.prepare('SELECT * FROM buildings ORDER BY id').all();
-  const houses = db.prepare('SELECT * FROM houses ORDER BY building_id, line').all();
+// ── 기준 정보 (현장별 필터링 적용)
+app.get('/api/master/buildings', siteMiddleware, (req, res) => {
+  const buildings = db.prepare('SELECT * FROM buildings WHERE site_id = ? ORDER BY id').all(req.siteId);
+  const houses = db.prepare('SELECT * FROM houses WHERE site_id = ? ORDER BY building_id, line').all(req.siteId);
   const result = buildings.map(b => ({
     ...b,
     houses: houses.filter(h => h.building_id === b.id)
@@ -345,19 +461,19 @@ app.get('/api/data', (req, res) => {
 
 app.post('/api/master/save-building', (req, res) => {
   const { id, name, address, basement_count, houses } = req.body;
-  const updateB = db.prepare('UPDATE buildings SET name=?,address=?,basement_count=? WHERE id=?');
-  updateB.run(name, address || '', basement_count, id);
+  const updateB = db.prepare('UPDATE buildings SET name=?,address=?,basement_count=? WHERE id=? AND site_id=?');
+  updateB.run(name, address || '', basement_count, id, req.siteId);
   
-  const deleteH = db.prepare('DELETE FROM houses WHERE building_id=?');
-  deleteH.run(id);
-  const insertH = db.prepare('INSERT INTO houses (building_id,ho,line,floors,basement_label_b1,basement_label_b2) VALUES (?,?,?,?,?,?)');
-  houses.forEach((h, i) => insertH.run(id, h.ho, h.line || i + 1, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2'));
+  const deleteH = db.prepare('DELETE FROM houses WHERE building_id=? AND site_id=?');
+  deleteH.run(id, req.siteId);
+  const insertH = db.prepare('INSERT INTO houses (site_id,building_id,ho,line,floors,basement_label_b1,basement_label_b2) VALUES (?,?,?,?,?,?,?)');
+  houses.forEach((h, i) => insertH.run(req.siteId, id, h.ho, h.line || i + 1, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2'));
   res.json({ success: true });
 });
 
-app.post('/api/master/add-building', (req, res) => {
+app.post('/api/master/add-building', siteMiddleware, (req, res) => {
   const { name } = req.body;
-  const result = db.prepare('INSERT INTO buildings (name,basement_count) VALUES (?,0)').run(name);
+  const result = db.prepare('INSERT INTO buildings (site_id, name, basement_count) VALUES (?,?,0)').run(req.siteId, name);
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -410,23 +526,26 @@ app.get('/api/status/summary', (req, res) => {
     SELECT o.*, b.name as building_name 
     FROM oiling_records o
     JOIN buildings b ON b.id=o.building_id
+    WHERE o.site_id = ?
     ORDER BY o.date DESC
-  `).all();
+  `).all(req.siteId);
   
   const cleaning = db.prepare(`
     SELECT c.*, b.name as building_name, h.ho
     FROM cleaning_records c
     JOIN buildings b ON b.id=c.building_id
     LEFT JOIN houses h ON h.id=c.house_id
+    WHERE c.site_id = ?
     ORDER BY c.date DESC
-  `).all();
+  `).all(req.siteId);
 
   const lifting = db.prepare(`
     SELECT l.*, b.name as building_name
     FROM lifting_records l
     JOIN buildings b ON b.id=l.building_id
+    WHERE l.site_id = ?
     ORDER BY l.date DESC
-  `).all();
+  `).all(req.siteId);
 
   res.json({ oiling, cleaning, lifting });
 });
@@ -453,14 +572,14 @@ app.get('/api/status/summary', (req, res) => {
     const d = req.body;
     let stmt;
     if (type === 'oiling') {
-      stmt = db.prepare('INSERT INTO oiling_records (building_id,house_id,floor,operator,date,time,remarks) VALUES (?,?,?,?,?,?,?)');
-      stmt.run(d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks);
+      stmt = db.prepare('INSERT INTO oiling_records (site_id,building_id,house_id,floor,operator,date,time,remarks) VALUES (?,?,?,?,?,?,?,?)');
+      stmt.run(req.siteId, d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks);
     } else if (type === 'cleaning') {
-      stmt = db.prepare('INSERT INTO cleaning_records (building_id,house_id,floor,phase,progress,operator,date,time,remarks,photo) VALUES (?,?,?,?,?,?,?,?,?,?)');
-      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null);
+      stmt = db.prepare('INSERT INTO cleaning_records (site_id,building_id,house_id,floor,phase,progress,operator,date,time,remarks,photo) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+      stmt.run(req.siteId, d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null);
     } else {
-      stmt = db.prepare('INSERT INTO lifting_records (building_id,floor,memo,status,date,checklist) VALUES (?,?,?,?,?,?)');
-      stmt.run(d.building_id, d.floor, d.memo, d.status || 'planned', d.date, JSON.stringify(d.checklist || []));
+      stmt = db.prepare('INSERT INTO lifting_records (site_id,building_id,floor,memo,status,date,checklist) VALUES (?,?,?,?,?,?,?)');
+      stmt.run(req.siteId, d.building_id, d.floor, d.memo, d.status || 'planned', d.date, JSON.stringify(d.checklist || []));
     }
     res.json({ success: true });
   });
@@ -499,7 +618,7 @@ app.get('/api/costs', (req, res) => {
 
 app.post('/api/costs', (req, res) => {
   const { date, description, vendor, amount, notes, category } = req.body;
-  const result = db.prepare('INSERT INTO cost_records (date,description,vendor,amount,notes,category) VALUES (?,?,?,?,?,?)').run(date, description, vendor, amount, notes, category || 'general');
+  const result = db.prepare('INSERT INTO cost_records (site_id,date,description,vendor,amount,notes,category) VALUES (?,?,?,?,?,?,?)').run(req.siteId, date, description, vendor, amount, notes, category || 'general');
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -517,8 +636,8 @@ app.delete('/api/costs/:id', (req, res) => {
 // ── 인원 관리
 app.get('/api/personnel', (req, res) => {
   const { month, date } = req.query;
-  let query = 'SELECT * FROM personnel_records WHERE 1=1';
-  const params = [];
+  let query = 'SELECT * FROM personnel_records WHERE site_id = ?';
+  const params = [req.siteId];
   if (month) { query += ' AND strftime(\'%Y-%m\', date) = ?'; params.push(month); }
   if (date) { query += ' AND date = ?'; params.push(date); }
   query += ' ORDER BY date DESC, name';
@@ -527,7 +646,7 @@ app.get('/api/personnel', (req, res) => {
 
 app.post('/api/personnel', (req, res) => {
   const { name, date, work_hours, ot_hours, night_hours, memo } = req.body;
-  const result = db.prepare('INSERT INTO personnel_records (name,date,work_hours,ot_hours,night_hours,memo) VALUES (?,?,?,?,?,?)').run(name, date, work_hours || 8, ot_hours || 0, night_hours || 0, memo || '');
+  const result = db.prepare('INSERT INTO personnel_records (site_id,name,date,work_hours,ot_hours,night_hours,memo) VALUES (?,?,?,?,?,?,?)').run(req.siteId, name, date, work_hours || 8, ot_hours || 0, night_hours || 0, memo || '');
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -580,8 +699,8 @@ app.delete('/api/emergency/:id', (req, res) => {
 // ── 작업자 기준정보
 app.get('/api/workers', (req, res) => {
   const { status, team } = req.query;
-  let query = 'SELECT * FROM workers WHERE 1=1';
-  const params = [];
+  let query = 'SELECT * FROM workers WHERE site_id = ?';
+  const params = [req.siteId];
   if (status) { query += ' AND status=?'; params.push(status); }
   if (team) { query += ' AND team=?'; params.push(team); }
   query += ' ORDER BY team, role DESC, name';
@@ -591,8 +710,8 @@ app.get('/api/workers', (req, res) => {
 app.post('/api/workers', (req, res) => {
   const { name, phone, role, team, specialty, status, memo } = req.body;
   const result = db.prepare(
-    'INSERT INTO workers (name,phone,role,team,specialty,status,memo) VALUES (?,?,?,?,?,?,?)'
-  ).run(name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '');
+    'INSERT INTO workers (site_id,name,phone,role,team,specialty,status,memo) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(req.siteId, name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '');
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -609,25 +728,97 @@ app.delete('/api/workers/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// ── 단가 관리
+// ── 단가 관리 (변동 이력 기반) ──
 app.get('/api/worker-prices', (req, res) => {
-  const { month } = req.query;
-  const query = 'SELECT * FROM worker_monthly_prices WHERE month = ?';
-  res.json(db.prepare(query).all(month));
+  const { worker_name, date, month } = req.query;
+  
+  if (worker_name && date) {
+    // 특정 날짜의 유효 단가 조회
+    const row = db.prepare(`
+      SELECT unit_price FROM worker_wage_history 
+      WHERE site_id = ? AND worker_name = ? AND effective_date <= ? 
+      ORDER BY effective_date DESC LIMIT 1
+    `).get(req.siteId, worker_name, date);
+    return res.json({ unit_price: row ? row.unit_price : 0 });
+  }
+
+  if (month) {
+    // 특정 월 말일 기준 각 작업자의 최신 유효 단가 조회 (과거 데이터 포함)
+    const lastDay = dayjs(month).endOf('month').format('YYYY-MM-DD');
+    const rows = db.prepare(`
+      SELECT w1.* FROM worker_wage_history w1
+      WHERE w1.site_id = ? AND w1.effective_date <= ?
+      AND w1.effective_date = (
+        SELECT MAX(effective_date) FROM worker_wage_history w2
+        WHERE w2.site_id = w1.site_id AND w2.worker_name = w1.worker_name AND w2.effective_date <= ?
+      )
+    `).all(req.siteId, lastDay, lastDay);
+    return res.json(rows);
+  }
+
+  res.json([]);
 });
 
-app.post('/api/worker-prices', (req, res) => {
-  const { worker_name, month, unit_price } = req.body;
+app.post('/api/worker-prices', authMiddleware, (req, res) => {
+  const { worker_name, effective_date, unit_price } = req.body;
   const stmt = db.prepare(`
-    INSERT INTO worker_monthly_prices (worker_name, month, unit_price)
-    VALUES (?, ?, ?)
-    ON CONFLICT(worker_name, month) DO UPDATE SET unit_price=excluded.unit_price
+    INSERT INTO worker_wage_history (site_id, worker_name, effective_date, unit_price)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(site_id, worker_name, effective_date) DO UPDATE SET unit_price=excluded.unit_price
   `);
-  stmt.run(worker_name, month, unit_price);
+  stmt.run(req.siteId, worker_name, effective_date, unit_price);
   res.json({ success: true });
 });
 
-// ── 프론트엔드 오류 수집용 API ──
+app.get('/api/worker-prices/history/:name', (req, res) => {
+  const rows = db.prepare('SELECT * FROM worker_wage_history WHERE site_id = ? AND worker_name = ? ORDER BY effective_date DESC')
+    .all(req.siteId, req.params.name);
+  res.json(rows);
+});
+
+app.delete('/api/worker-prices/:id', authMiddleware, (req, res) => {
+  db.prepare('DELETE FROM worker_wage_history WHERE id = ? AND site_id = ?').run(req.params.id, req.siteId);
+  res.json({ success: true });
+});
+
+app.get('/api/worker-prices/all', (req, res) => {
+  const rows = db.prepare('SELECT * FROM worker_wage_history ORDER BY worker_name, effective_date DESC').all();
+  res.json(rows);
+});
+
+// ── 현장(Site) 관리 API ──
+app.get('/api/sites', authMiddleware, (req, res) => {
+  console.log(`[API] Sites requested by user: ${req.user.email}`);
+  const rows = db.prepare('SELECT * FROM sites WHERE status = \'active\'').all();
+  console.log(`[API] Found ${rows.length} active sites`);
+  res.json(rows);
+});
+
+app.post('/api/sites', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자만 현장을 추가할 수 있습니다.' });
+  const { name, primary_contractor, subcontractor, address, start_date, end_date } = req.body;
+  const result = db.prepare(`
+    INSERT INTO sites (name, primary_contractor, subcontractor, address, start_date, end_date)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(name, primary_contractor, subcontractor, address, start_date, end_date);
+  res.json({ id: result.lastInsertRowid });
+});
+
+app.get('/api/sites/:id', authMiddleware, (req, res) => {
+  const row = db.prepare('SELECT * FROM sites WHERE id = ?').get(req.params.id);
+  res.json(row);
+});
+
+app.put('/api/sites/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: '관리자만 현장 정보를 수정할 수 있습니다.' });
+  const { name, primary_contractor, subcontractor, address, start_date, end_date } = req.body;
+  db.prepare(`
+    UPDATE sites 
+    SET name=?, primary_contractor=?, subcontractor=?, address=?, start_date=?, end_date=?
+    WHERE id=?
+  `).run(name, primary_contractor, subcontractor, address, start_date, end_date, req.params.id);
+  res.json({ success: true });
+});
 app.post('/api/log-error', (req, res) => {
   const { error, info } = req.body;
   logErrorToFile(`Message: ${error}\nInfo: ${info}`, 'Frontend');
