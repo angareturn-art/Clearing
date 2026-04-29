@@ -730,6 +730,15 @@ app.delete('/api/workers/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ── 공수 가중치 계산 로직 (현장 실무 적용) ──
+const getWeight = (ot_h, night_h) => {
+  const extra = (ot_h || 0) + (night_h || 0);
+  if (extra >= 4) return 1.0;
+  if (extra >= 2) return 0.5;
+  if (extra >= 1) return 0.1;
+  return 0;
+};
+
 // ── 월별 마감 (Monthly Closing) ──
 app.get('/api/closing/monthly', (req, res) => {
   const { month } = req.query; // format: YYYY-MM
@@ -763,11 +772,10 @@ app.get('/api/closing/monthly', (req, res) => {
       };
     }
     
-    // Calculate MD
+    // Calculate MD (현장 실무 로직 적용)
     const baseMD = (r.work_hours || 0) / 8.0;
-    const otMD = ((r.ot_hours || 0) * 1.5) / 8.0;
-    const nightMD = ((r.night_hours || 0) * 2.0) / 8.0;
-    const dailyMD = baseMD + otMD + nightMD;
+    const extraMD = getWeight(r.ot_hours, r.night_hours);
+    const dailyMD = baseMD + extraMD;
     
     const day = parseInt(r.date.split('-')[2], 10);
     summaryMap[r.name].daily[day] = (summaryMap[r.name].daily[day] || 0) + dailyMD;
@@ -815,10 +823,10 @@ app.get('/api/export/closing', (req, res) => {
         };
       }
       
+      // Calculate MD (현장 실무 로직 적용)
       const baseMD = (r.work_hours || 0) / 8.0;
-      const otMD = ((r.ot_hours || 0) * 1.5) / 8.0;
-      const nightMD = ((r.night_hours || 0) * 2.0) / 8.0;
-      const dailyMD = baseMD + otMD + nightMD;
+      const extraMD = getWeight(r.ot_hours, r.night_hours);
+      const dailyMD = baseMD + extraMD;
       
       const day = parseInt(r.date.split('-')[2], 10);
       summaryMap[r.name].daily[day] = (summaryMap[r.name].daily[day] || 0) + dailyMD;
@@ -847,7 +855,7 @@ app.get('/api/export/closing', (req, res) => {
 
     const excelBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'buffer' });
 
-    res.setHeader('Content-Disposition', \`attachment; filename="closing_${month}.xlsx"\`);
+    res.setHeader('Content-Disposition', `attachment; filename="closing_${month}.xlsx"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(excelBuffer);
 

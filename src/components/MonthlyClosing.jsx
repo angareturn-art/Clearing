@@ -150,10 +150,10 @@ function MonthlyClosing({ siteId, token }) {
       )}
       
       <div className="mt-4 text-sm text-gray-500 bg-yellow-50 p-3 rounded border border-yellow-200">
-        <strong>💡 공수(Man-days) 산정 기준:</strong> 
-        기본(1일 8시간=1.0) / 연장(1시간=1.5 가중치 / 8.0) / 야간(1시간=2.0 가중치 / 8.0) 
+        <strong>💡 공수(Man-days) 산정 기준 (현장 실무 적용):</strong> 
+        기본 공수(근무 시간 / 8.0) + 추가 공수(OT 및 야간 합산: 1시간 이상 +0.1 / 2시간 이상 +0.5 / 4시간 이상 +1.0)
         <br/>
-        예시: 하루 10시간 근무 (기본 8 + 연장 2) = 1.0 + 0.375 = 1.375 공수
+        예시: 하루 10시간 근무 (기본 8 + OT 2) = 1.0 + 0.5 = 1.5 공수
       </div>
     </div>
   );
