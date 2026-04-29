@@ -13,6 +13,9 @@ import WorkerManager from './components/WorkerManager';
 import PaymentStatus from './components/PaymentStatus';
 import SiteSelector from './components/SiteSelector';
 import AdvancedElevationView from './components/AdvancedElevationView';
+import SyncManager from './components/SyncManager';
+import MonthlyClosing from './components/MonthlyClosing';
+
 
 dayjs.locale('ko');
 
@@ -40,8 +43,10 @@ const TABS = [
   { id: 'personnel',  label: '인원',      icon: 'badge' },          // 일일 출역/인원 관리
   { id: 'workers',    label: '작업자',    icon: 'groups' },         // 작업자 마스터 관리
   { id: 'payment_status', label: '기성 현황', icon: 'payments' },  // 공정별 기성비 산출
+  { id: 'closing',    label: '월별 마감', icon: 'price_check' },    // 월별 인원 공수 통합 및 엑셀 다운로드
   { id: 'emergency',  label: '비상연락',  icon: 'emergency' },      // 주요 연락처 목록
   { id: 'settings',   label: '기준정보',  icon: 'database' },       // 현장 및 동/호수 기본 설정
+  { id: 'sync',       label: '클라우드 동기화', icon: 'cloud_sync', adminOnly: true }, // Supabase 데이터 동기화
 ];
 
 function App() {
@@ -360,7 +365,7 @@ function App() {
 
         {/* PC 네비게이션 */}
         <nav className="hidden md:flex items-center gap-1">
-          {TABS.map(tab => (
+          {TABS.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => (
             <button 
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -439,7 +444,9 @@ function App() {
         {activeTab === 'personnel' && <PersonnelManager currentSite={currentSite} />}
         {activeTab === 'workers' && <WorkerManager currentSite={currentSite} />}
         {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} />}
+        {activeTab === 'closing' && <MonthlyClosing siteId={currentSite?.id} token={localStorage.getItem('ba_token')} />}
         {activeTab === 'emergency' && <EmergencyContacts />}
+        {activeTab === 'sync' && <SyncManager currentUser={currentUser} />}
 
         {activeTab === 'records' && (
           <div className="space-y-6">
@@ -503,7 +510,7 @@ function App() {
 
       {/* 모바일 하단 네비게이션 */}
       <nav className="fixed bottom-0 left-0 w-full flex justify-around items-center h-20 pb-safe px-1 bg-surface shadow-[0_-4px_24px_rgba(0,0,0,0.06)] z-[50] md:hidden border-t border-outline-variant/20 overflow-x-auto">
-        {TABS.map(tab => (
+        {TABS.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}

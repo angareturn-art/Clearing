@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
+const xlsx = require('xlsx');
+
 
 // ── 백엔드 서버 엔진 설정 ──
 const app = express();
@@ -728,6 +730,133 @@ app.delete('/api/workers/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ── 월별 마감 (Monthly Closing) ──
+app.get('/api/closing/monthly', (req, res) => {
+  const { month } = req.query; // format: YYYY-MM
+  if (!month) return res.status(400).json({ error: 'month parameter is required' });
+
+  // 1. Get all personnel records for the month
+  const records = db.prepare(`
+    SELECT name, date, work_hours, ot_hours, night_hours 
+    FROM personnel_records 
+    WHERE site_id = ? AND strftime('%Y-%m', date) = ?
+  `).all(req.siteId, month);
+
+  // Group by worker name
+  const summaryMap = {};
+
+  records.forEach(r => {
+    if (!summaryMap[r.name]) {
+      // Find the most recent unit_price on or before the end of the month
+      const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
+      const priceRow = db.prepare(`
+        SELECT unit_price FROM worker_wage_history 
+        WHERE site_id = ? AND worker_name = ? AND effective_date <= ? 
+        ORDER BY effective_date DESC LIMIT 1
+      `).get(req.siteId, r.name, endOfMonth);
+      
+      summaryMap[r.name] = {
+        name: r.name,
+        unit_price: priceRow ? priceRow.unit_price : 0,
+        total_md: 0,
+        daily: {}
+      };
+    }
+    
+    // Calculate MD
+    const baseMD = (r.work_hours || 0) / 8.0;
+    const otMD = ((r.ot_hours || 0) * 1.5) / 8.0;
+    const nightMD = ((r.night_hours || 0) * 2.0) / 8.0;
+    const dailyMD = baseMD + otMD + nightMD;
+    
+    const day = parseInt(r.date.split('-')[2], 10);
+    summaryMap[r.name].daily[day] = (summaryMap[r.name].daily[day] || 0) + dailyMD;
+    summaryMap[r.name].total_md += dailyMD;
+  });
+
+  const summary = Object.values(summaryMap).map(worker => ({
+    ...worker,
+    total_amount: Math.round(worker.total_md * worker.unit_price)
+  }));
+
+  summary.sort((a, b) => a.name.localeCompare(b.name));
+  
+  res.json(summary);
+});
+
+app.get('/api/export/closing', (req, res) => {
+  const { month } = req.query;
+  if (!month) return res.status(400).json({ error: 'month parameter is required' });
+
+  try {
+    const records = db.prepare(`
+      SELECT name, date, work_hours, ot_hours, night_hours 
+      FROM personnel_records 
+      WHERE site_id = ? AND strftime('%Y-%m', date) = ?
+    `).all(req.siteId, month);
+
+    const summaryMap = {};
+    const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
+    const daysInMonth = dayjs(month).daysInMonth();
+
+    records.forEach(r => {
+      if (!summaryMap[r.name]) {
+        const priceRow = db.prepare(`
+          SELECT unit_price FROM worker_wage_history 
+          WHERE site_id = ? AND worker_name = ? AND effective_date <= ? 
+          ORDER BY effective_date DESC LIMIT 1
+        `).get(req.siteId, r.name, endOfMonth);
+        
+        summaryMap[r.name] = {
+          name: r.name,
+          unit_price: priceRow ? priceRow.unit_price : 0,
+          total_md: 0,
+          daily: {}
+        };
+      }
+      
+      const baseMD = (r.work_hours || 0) / 8.0;
+      const otMD = ((r.ot_hours || 0) * 1.5) / 8.0;
+      const nightMD = ((r.night_hours || 0) * 2.0) / 8.0;
+      const dailyMD = baseMD + otMD + nightMD;
+      
+      const day = parseInt(r.date.split('-')[2], 10);
+      summaryMap[r.name].daily[day] = (summaryMap[r.name].daily[day] || 0) + dailyMD;
+      summaryMap[r.name].total_md += dailyMD;
+    });
+
+    const summary = Object.values(summaryMap).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Excel Data preparation
+    const excelData = summary.map(worker => {
+      const row = { '작업자 이름': worker.name };
+      for (let i = 1; i <= daysInMonth; i++) {
+        row[`${i}일`] = worker.daily[i] ? Number(worker.daily[i].toFixed(3)) : '';
+      }
+      row['총 공수'] = Number(worker.total_md.toFixed(3));
+      row['적용 단가'] = worker.unit_price;
+      row['총 노무비'] = Math.round(worker.total_md * worker.unit_price);
+      return row;
+    });
+
+    const worksheet = xlsx.utils.json_to_sheet(excelData);
+    
+    // Make headers bolder or just use simple json_to_sheet
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, '월별 마감');
+
+    const excelBuffer = xlsx.write(workbook, { bookType: 'xlsx', type: 'buffer' });
+
+    res.setHeader('Content-Disposition', \`attachment; filename="closing_${month}.xlsx"\`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(excelBuffer);
+
+  } catch (error) {
+    console.error('Excel Export Error:', error);
+    res.status(500).json({ error: '엑셀 파일 생성 중 오류가 발생했습니다.' });
+  }
+});
+
 // ── 단가 관리 (변동 이력 기반) ──
 app.get('/api/worker-prices', (req, res) => {
   const { worker_name, date, month } = req.query;
@@ -845,6 +974,70 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   logErrorToFile(reason, 'Critical (Rejection)');
   console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// ── 클라우드 동기화 API ──
+const { exec } = require('child_process');
+let isSyncRunning = false;
+
+app.post('/api/sync/run', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: '관리자만 동기화를 실행할 수 있습니다.' });
+  }
+
+  if (isSyncRunning) {
+    return res.status(409).json({ error: '현재 다른 동기화 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.' });
+  }
+
+  isSyncRunning = true;
+  req.setTimeout(0); // 타임아웃 무제한 대기
+
+  const scriptPath = path.join(__dirname, '../../clearing-supabase-migration');
+
+  // 버퍼 10MB 할당 (maxBuffer: 10485760)
+  exec('node compare-and-sync.js', { cwd: scriptPath, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    isSyncRunning = false;
+
+    if (error) {
+      console.error('Sync Error:', error.message);
+      return res.status(500).json({ error: stderr || error.message || '동기화 스크립트 실행 중 오류가 발생했습니다.' });
+    }
+
+    try {
+      const lines = stdout.split('\n');
+      const results = [];
+      let isParsingTable = false;
+
+      for (const line of lines) {
+        if (line.includes('| 테이블명 |')) {
+          isParsingTable = true;
+          continue;
+        }
+        if (isParsingTable && line.includes('| :---')) continue;
+        
+        if (isParsingTable && line.startsWith('|')) {
+          const cols = line.split('|').map(s => s.trim()).filter(s => s !== '');
+          if (cols.length >= 4) {
+            results.push({
+              table: cols[0],
+              local: parseInt(cols[1].replace(/,/g, '')),
+              remote: parseInt(cols[2].replace(/,/g, '')),
+              status: cols[3]
+            });
+          }
+        }
+      }
+
+      if (results.length === 0) {
+        return res.status(500).json({ error: '파싱 결과 없음. 로그:\n' + stdout });
+      }
+
+      res.json({ success: true, results, log: stdout });
+    } catch (err) {
+      console.error('Parsing Error:', err);
+      res.status(500).json({ error: '결과 파싱 오류: ' + err.message });
+    }
+  });
 });
 
 app.listen(PORT, () => console.log(`✅ Blueprint Authority Server running on port ${PORT}`));
