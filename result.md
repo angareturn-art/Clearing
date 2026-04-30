@@ -1,5 +1,25 @@
 # 작업 완료 요약 보고서 (result.md)
 
+---
+
+## [2026-05-01] 월별 마감 공수 산정 로직 수정 (현장 실무 기준 적용)
+
+**작업자:** Antigravity (AI Coding Assistant)
+
+### ✅ 백엔드 공수 로직 교체 (`server/index.js`)
+- 기존 AI 임의 시간비례(1.5배/2.0배 곱셈) 방식을 **현장 실무 표준 가중치 방식**으로 전면 교체
+- `PersonnelManager`에서 사용하던 `getWeight` 함수 로직을 `/api/closing/monthly` 및 `/api/export/closing` API에 통합 적용
+- **추가 공수 기준 (OT + 야간 합산 시간 기준)**: 4시간 이상 +1.0 / 2시간 이상 +0.5 / 1시간 이상 +0.1
+
+### ✅ 프론트엔드 안내 문구 수정 (`src/components/MonthlyClosing.jsx`)
+- 화면 하단 노란색 안내 박스를 수정된 현장 실무 기준으로 업데이트
+
+### ✅ 데이터 안전 조치
+- **DB 백업**: `server/construction_backup_20260429_2.db` 생성 완료
+- **GitHub 동기화**: 커밋 `37ee228` push 완료 (메시지: `fix: update monthly closing MD calculation logic`)
+
+---
+
 **일자:** 2026-04-29
 **작업자:** Antigravity (AI Coding Assistant)
 
