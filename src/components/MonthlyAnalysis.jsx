@@ -40,6 +40,17 @@ export default function MonthlyAnalysis({ currentSite }) {
 
   const handlePrint = () => window.print();
 
+  const handleExcelDownload = () => {
+    const p = new URLSearchParams({ 
+      month, 
+      split_day: splitDay, 
+      oiling_price: oilingPrice, 
+      cleaning_price: cleaningPrice, 
+      period_mode: periodMode 
+    });
+    window.location.href = `${API}/analysis/export-monthly?${p}`;
+  };
+
   return (
     <div className="space-y-4">
       <style>{`@media print{.no-print{display:none!important}.print-only{display:block!important}.left-panel{width:100%!important}.right-panel{display:none!important}}`}</style>
@@ -47,9 +58,14 @@ export default function MonthlyAnalysis({ currentSite }) {
       {/* 헤더 */}
       <div className="flex flex-wrap items-center justify-between gap-3 no-print">
         <h2 className="text-3xl font-black text-primary font-headline">📊 월별 통합 정산 분석</h2>
-        <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-bold text-sm hover:bg-primary/90">
-          <span className="material-symbols-outlined text-sm">print</span> 청구서 출력
-        </button>
+        <div className="flex gap-2">
+          <button onClick={handleExcelDownload} className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-lg font-bold text-sm hover:opacity-90 transition-opacity">
+            <span className="material-symbols-outlined text-sm">download</span> 엑셀 저장
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-bold text-sm hover:bg-primary/90 transition-colors">
+            <span className="material-symbols-outlined text-sm">print</span> 청구서 출력
+          </button>
+        </div>
       </div>
 
       {/* 조건바 */}

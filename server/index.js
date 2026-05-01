@@ -1098,26 +1098,18 @@ app.post('/api/sync/run', authMiddleware, (req, res) => {
   });
 });
 
-// ── 월별 통합 정산 분석 API ──
-app.get('/api/analysis/monthly', (req, res) => {
-  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
-  if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
-
-  const siteId = req.siteId;
-  const splitDay = parseInt(split_day);
-  const oilingPrice = parseInt(oiling_price);
-  const cleaningPrice = parseInt(cleaning_price);
-
+// ── 월별 통합 정산 분석 데이터 계산 함수 (공통) ──
+const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, cleaningPrice, periodMode) => {
   // 모든 건물 + 기준층 정보
   const buildings = db.prepare('SELECT * FROM buildings WHERE site_id=? ORDER BY id').all(siteId);
   const houses = db.prepare('SELECT * FROM houses WHERE site_id=? ORDER BY building_id, line').all(siteId);
   const buildingMap = {};
   buildings.forEach(b => { buildingMap[b.id] = { ...b, houses: houses.filter(h => h.building_id === b.id) }; });
 
-  // ── 갱폼 박리제 쿼리 (전 기간 또는 도급기간 필터)
+  // ── 갱폼 박리제 쿼리
   let oilingWhere = `strftime('%Y-%m', o.date) = ?`;
   const oilingParams = [siteId, month];
-  if (period_mode === 'split') {
+  if (periodMode === 'split') {
     oilingWhere += ` AND CAST(strftime('%d', o.date) AS INTEGER) > ?`;
     oilingParams.push(splitDay);
   }
@@ -1131,7 +1123,6 @@ app.get('/api/analysis/monthly', (req, res) => {
     ORDER BY o.date, b.name, o.floor
   `).all(siteId, ...oilingParams);
 
-  // 갱폼 건물별 집계 + 비고 생성
   const oilingByBuilding = {};
   const oilingDetails = [];
   oilingRows.forEach(r => {
@@ -1145,7 +1136,6 @@ app.get('/api/analysis/monthly', (req, res) => {
     }
     oilingDetails.push({ id: r.id, date: r.date, building: r.bname, building_id: r.building_id, floor: r.floor, oiling_base_floor: r.oiling_base_floor, units: r.unit_count, is_billable: isBillable, amount });
   });
-  // 비고 문자열 생성
   Object.values(oilingByBuilding).forEach(b => {
     b.remark = b.floors.map(f => `${f.floor}층(${f.units}세대)`).join(', ');
   });
@@ -1154,7 +1144,7 @@ app.get('/api/analysis/monthly', (req, res) => {
   // ── 세대청소 쿼리
   let cleaningWhere = `strftime('%Y-%m', c.date) = ?`;
   const cleaningParams = [siteId, month];
-  if (period_mode === 'split') {
+  if (periodMode === 'split') {
     cleaningWhere += ` AND CAST(strftime('%d', c.date) AS INTEGER) > ?`;
     cleaningParams.push(splitDay);
   }
@@ -1168,12 +1158,10 @@ app.get('/api/analysis/monthly', (req, res) => {
     ORDER BY b.name, c.floor, c.phase
   `).all(siteId, ...cleaningParams);
 
-  // 층별 완료 여부 계산 (지하층 분리)
   const cleaningFloorMap = {};
-  const cleaningExtra = []; // 지하층
+  const cleaningExtra = [];
   cleaningRows.forEach(r => {
     if (r.floor <= 0) {
-      // 지하층: 기타작업
       const label = r.floor === -1 ? 'B1층' : r.floor === -2 ? 'B2층' : `B${Math.abs(r.floor)}층`;
       cleaningExtra.push({ building: r.bname, building_id: r.building_id, floor: r.floor, phase: r.phase, date: r.date, label: `${label} 청소(${r.phase}차)` });
       return;
@@ -1204,7 +1192,7 @@ app.get('/api/analysis/monthly', (req, res) => {
   });
   const cleaningTotal = Object.values(cleaningByBuilding).reduce((s, b) => s + b.billable_amount, 0);
 
-  // ── 인건비 (팀장 제외)
+  // ── 인건비
   const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
   const personnelRows = db.prepare(`
     SELECT p.name, p.date, p.work_hours, p.ot_hours, p.night_hours
@@ -1227,15 +1215,91 @@ app.get('/api/analysis/monthly', (req, res) => {
   const expenseWorkers = Object.values(expenseMap).map(w => ({ ...w, amount: Math.round(w.total_md * w.unit_price) }));
   const expenseTotal = expenseWorkers.reduce((s, w) => s + w.amount, 0);
 
-  res.json({
+  return {
     oiling: { by_building: Object.values(oilingByBuilding), details: oilingDetails, total: oilingTotal },
     cleaning: { by_building: Object.values(cleaningByBuilding), details: cleaningDetails, total: cleaningTotal },
     cleaning_extra: cleaningExtra,
     expense: { workers: expenseWorkers, total: expenseTotal },
     summary: { income: oilingTotal + cleaningTotal, expense: expenseTotal, net: oilingTotal + cleaningTotal - expenseTotal },
-    params: { month, split_day: splitDay, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode }
-  });
+    params: { month, split_day: splitDay, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode }
+  };
+};
+
+app.get('/api/analysis/monthly', (req, res) => {
+  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
+  if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
+  const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(split_day), parseInt(oiling_price), parseInt(cleaning_price), period_mode);
+  res.json(data);
 });
+
+app.get('/api/analysis/export-monthly', (req, res) => {
+  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
+  if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
+  
+  try {
+    const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(split_day), parseInt(oiling_price), parseInt(cleaning_price), period_mode);
+    const site = db.prepare('SELECT name FROM sites WHERE id=?').get(req.siteId);
+    const siteName = site ? site.name : 'Clearing';
+    
+    const [year, monthNum] = month.split('-');
+    const periodText = period_mode === 'split' ? `${parseInt(split_day) + 1}일~말일` : '전체기간';
+
+    // 엑셀 AOA 구성
+    const aoa = [
+      [`[${siteName}] 월별 정산 내역서`],
+      [`${year}년 ${monthNum}월 (도급기간: ${periodText})`],
+      [],
+      ["1. 갱폼 박리제 도급 내역"],
+      ["동", "세대", "작업층/세대수", "금액"]
+    ];
+
+    data.oiling.by_building.forEach(b => {
+      aoa.push([b.building, b.total_units + "세대", b.remark, b.billable_amount]);
+    });
+    aoa.push(["소계", (data.oiling.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.oiling.total]);
+    aoa.push([]);
+
+    aoa.push(["2. 세대 청소 도급 내역"]);
+    aoa.push(["동", "세대", "작업층/차수", "금액"]);
+    data.cleaning.by_building.forEach(b => {
+      aoa.push([b.building, b.total_units + "세대", b.remark, b.billable_amount]);
+    });
+    aoa.push(["소계", (data.cleaning.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.cleaning.total]);
+    aoa.push([]);
+
+    if (data.cleaning_extra.length > 0) {
+      aoa.push(["3. 기타 작업 내역 (별도 청구)"]);
+      aoa.push(["동", "작업 내용", "비고(날짜)"]);
+      data.cleaning_extra.forEach(r => {
+        aoa.push([r.building, r.label, r.date]);
+      });
+      aoa.push([]);
+    }
+
+    aoa.push(["─────────────────────────────────────────────────────────"]);
+    aoa.push(["합계 금액", "", "", data.summary.income + "원"]);
+    aoa.push(["─────────────────────────────────────────────────────────"]);
+
+    const worksheet = xlsx.utils.aoa_to_sheet(aoa);
+    
+    // 열 너비 조정
+    worksheet['!cols'] = [{ wch: 10 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
+
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, '정산내역');
+
+    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Disposition', `attachment; filename="monthly_analysis_${month}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+
+  } catch (err) {
+    console.error('Excel Export Error:', err);
+    res.status(500).json({ error: '엑셀 파일 생성 중 오류가 발생했습니다.' });
+  }
+});
+
 
 // ── 예상 수입 분석 API ──
 app.get('/api/analysis/projection', (req, res) => {
