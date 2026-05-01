@@ -234,6 +234,40 @@ db.exec(`
   }
 });
 
+// ── buildings 기준층 컬럼 마이그레이션 ──
+(function migrateBaseFloors() {
+  const bInfo = db.prepare('PRAGMA table_info(buildings)').all();
+  if (!bInfo.some(c => c.name === 'oiling_base_floor')) {
+    db.exec('ALTER TABLE buildings ADD COLUMN oiling_base_floor INTEGER DEFAULT 0');
+    console.log('✅ buildings: oiling_base_floor 추가');
+  }
+  if (!bInfo.some(c => c.name === 'cleaning_base_floor')) {
+    db.exec('ALTER TABLE buildings ADD COLUMN cleaning_base_floor INTEGER DEFAULT 0');
+    console.log('✅ buildings: cleaning_base_floor 추가');
+  }
+  // 기준층 초기값 설정 (값이 0인 경우만 업데이트)
+  const setFloors = db.transaction(() => {
+    [['1동',7,4],['2동',7,4],['3동',3,3],['4동',3,3],['5동',3,3],['6동',3,3],['9동',3,3],['7동',2,2],['8동',2,2]]
+      .forEach(([name, oil, clean]) => {
+        db.prepare('UPDATE buildings SET oiling_base_floor=? WHERE name=? AND oiling_base_floor=0').run(oil, name);
+        db.prepare('UPDATE buildings SET cleaning_base_floor=? WHERE name=? AND cleaning_base_floor=0').run(clean, name);
+      });
+  });
+  setFloors();
+})();
+
+// ── 누락 작업자 단가 자동 등록 (김대성, 이르판) ──
+(function seedWorkerPrices() {
+  const defaults = [['김대성', 150000], ['이르판', 140000]];
+  const upsert = db.prepare(`
+    INSERT INTO worker_wage_history (site_id, worker_name, effective_date, unit_price)
+    VALUES (1, ?, '2026-04-01', ?)
+    ON CONFLICT(site_id, worker_name, effective_date) DO NOTHING
+  `);
+  defaults.forEach(([name, price]) => upsert.run(name, price));
+  console.log('✅ 작업자 단가 기본값 등록 완료');
+})();
+
 // ── worker_wage_history 제약 조건 고도화 마이그레이션 ──
 const wwhIndices = db.prepare("PRAGMA index_list('worker_wage_history')").all();
 let needsWwhUpdate = true;
@@ -450,21 +484,23 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
 });
 
-// ── 기준 정보 (현장별 필터링 적용)
+// ── 기준 정보 (현장별 필터링 적용) - oiling_base_floor, cleaning_base_floor 포함
 app.get('/api/master/buildings', siteMiddleware, (req, res) => {
   const buildings = db.prepare('SELECT * FROM buildings WHERE site_id = ? ORDER BY id').all(req.siteId);
   const houses = db.prepare('SELECT * FROM houses WHERE site_id = ? ORDER BY building_id, line').all(req.siteId);
   const result = buildings.map(b => ({
     ...b,
+    oiling_base_floor: b.oiling_base_floor || 0,
+    cleaning_base_floor: b.cleaning_base_floor || 0,
     houses: houses.filter(h => h.building_id === b.id)
   }));
   res.json(result);
 });
 
 app.post('/api/master/save-building', (req, res) => {
-  const { id, name, address, basement_count, houses } = req.body;
-  const updateB = db.prepare('UPDATE buildings SET name=?,address=?,basement_count=? WHERE id=? AND site_id=?');
-  updateB.run(name, address || '', basement_count, id, req.siteId);
+  const { id, name, address, basement_count, oiling_base_floor, cleaning_base_floor, houses } = req.body;
+  db.prepare('UPDATE buildings SET name=?,address=?,basement_count=?,oiling_base_floor=?,cleaning_base_floor=? WHERE id=? AND site_id=?')
+    .run(name, address || '', basement_count || 0, oiling_base_floor || 0, cleaning_base_floor || 0, id, req.siteId);
   
   const deleteH = db.prepare('DELETE FROM houses WHERE building_id=? AND site_id=?');
   deleteH.run(id, req.siteId);
@@ -710,18 +746,32 @@ app.get('/api/workers', (req, res) => {
 });
 
 app.post('/api/workers', (req, res) => {
-  const { name, phone, role, team, specialty, status, memo } = req.body;
+  const { name, phone, role, team, specialty, status, memo, unit_price, price_date } = req.body;
   const result = db.prepare(
     'INSERT INTO workers (site_id,name,phone,role,team,specialty,status,memo) VALUES (?,?,?,?,?,?,?,?)'
   ).run(req.siteId, name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '');
+  // 단가 자동 등록
+  if (unit_price && parseInt(unit_price) > 0) {
+    const eDate = price_date || dayjs().format('YYYY-MM-DD');
+    db.prepare(`INSERT INTO worker_wage_history (site_id,worker_name,effective_date,unit_price) VALUES (?,?,?,?)
+      ON CONFLICT(site_id,worker_name,effective_date) DO UPDATE SET unit_price=excluded.unit_price`)
+      .run(req.siteId, name, eDate, parseInt(unit_price));
+  }
   res.json({ id: result.lastInsertRowid });
 });
 
 app.put('/api/workers/:id', (req, res) => {
-  const { name, phone, role, team, specialty, status, memo } = req.body;
+  const { name, phone, role, team, specialty, status, memo, unit_price, price_date } = req.body;
   db.prepare(
     'UPDATE workers SET name=?,phone=?,role=?,team=?,specialty=?,status=?,memo=? WHERE id=?'
   ).run(name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '', req.params.id);
+  // 단가 자동 등록
+  if (unit_price && parseInt(unit_price) > 0) {
+    const eDate = price_date || dayjs().format('YYYY-MM-DD');
+    db.prepare(`INSERT INTO worker_wage_history (site_id,worker_name,effective_date,unit_price) VALUES (?,?,?,?)
+      ON CONFLICT(site_id,worker_name,effective_date) DO UPDATE SET unit_price=excluded.unit_price`)
+      .run(req.siteId, name, eDate, parseInt(unit_price));
+  }
   res.json({ success: true });
 });
 
@@ -1045,6 +1095,186 @@ app.post('/api/sync/run', authMiddleware, (req, res) => {
       console.error('Parsing Error:', err);
       res.status(500).json({ error: '결과 파싱 오류: ' + err.message });
     }
+  });
+});
+
+// ── 월별 통합 정산 분석 API ──
+app.get('/api/analysis/monthly', (req, res) => {
+  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
+  if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
+
+  const siteId = req.siteId;
+  const splitDay = parseInt(split_day);
+  const oilingPrice = parseInt(oiling_price);
+  const cleaningPrice = parseInt(cleaning_price);
+
+  // 모든 건물 + 기준층 정보
+  const buildings = db.prepare('SELECT * FROM buildings WHERE site_id=? ORDER BY id').all(siteId);
+  const houses = db.prepare('SELECT * FROM houses WHERE site_id=? ORDER BY building_id, line').all(siteId);
+  const buildingMap = {};
+  buildings.forEach(b => { buildingMap[b.id] = { ...b, houses: houses.filter(h => h.building_id === b.id) }; });
+
+  // ── 갱폼 박리제 쿼리 (전 기간 또는 도급기간 필터)
+  let oilingWhere = `strftime('%Y-%m', o.date) = ?`;
+  const oilingParams = [siteId, month];
+  if (period_mode === 'split') {
+    oilingWhere += ` AND CAST(strftime('%d', o.date) AS INTEGER) > ?`;
+    oilingParams.push(splitDay);
+  }
+  const oilingRows = db.prepare(`
+    SELECT o.id, o.date, o.floor, o.building_id,
+      b.name as bname, b.oiling_base_floor,
+      (SELECT COUNT(*) FROM houses WHERE building_id=o.building_id AND site_id=? AND floors >= o.floor) as unit_count
+    FROM oiling_records o
+    JOIN buildings b ON b.id=o.building_id
+    WHERE o.site_id=? AND ${oilingWhere}
+    ORDER BY o.date, b.name, o.floor
+  `).all(siteId, ...oilingParams);
+
+  // 갱폼 건물별 집계 + 비고 생성
+  const oilingByBuilding = {};
+  const oilingDetails = [];
+  oilingRows.forEach(r => {
+    const isBillable = r.floor > (r.oiling_base_floor || 0);
+    const amount = isBillable ? r.unit_count * oilingPrice : 0;
+    if (!oilingByBuilding[r.bname]) oilingByBuilding[r.bname] = { building: r.bname, building_id: r.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    if (isBillable) {
+      oilingByBuilding[r.bname].billable_amount += amount;
+      oilingByBuilding[r.bname].total_units += r.unit_count;
+      oilingByBuilding[r.bname].floors.push({ floor: r.floor, units: r.unit_count, amount, date: r.date });
+    }
+    oilingDetails.push({ id: r.id, date: r.date, building: r.bname, building_id: r.building_id, floor: r.floor, oiling_base_floor: r.oiling_base_floor, units: r.unit_count, is_billable: isBillable, amount });
+  });
+  // 비고 문자열 생성
+  Object.values(oilingByBuilding).forEach(b => {
+    b.remark = b.floors.map(f => `${f.floor}층(${f.units}세대)`).join(', ');
+  });
+  const oilingTotal = Object.values(oilingByBuilding).reduce((s, b) => s + b.billable_amount, 0);
+
+  // ── 세대청소 쿼리
+  let cleaningWhere = `strftime('%Y-%m', c.date) = ?`;
+  const cleaningParams = [siteId, month];
+  if (period_mode === 'split') {
+    cleaningWhere += ` AND CAST(strftime('%d', c.date) AS INTEGER) > ?`;
+    cleaningParams.push(splitDay);
+  }
+  const cleaningRows = db.prepare(`
+    SELECT c.building_id, c.floor, c.phase, c.house_id, c.date,
+      b.name as bname, b.cleaning_base_floor,
+      (SELECT COUNT(DISTINCT h2.id) FROM houses h2 WHERE h2.building_id=c.building_id AND h2.site_id=? AND h2.floors >= c.floor) as total_units
+    FROM cleaning_records c
+    JOIN buildings b ON b.id=c.building_id
+    WHERE c.site_id=? AND ${cleaningWhere}
+    ORDER BY b.name, c.floor, c.phase
+  `).all(siteId, ...cleaningParams);
+
+  // 층별 완료 여부 계산 (지하층 분리)
+  const cleaningFloorMap = {};
+  const cleaningExtra = []; // 지하층
+  cleaningRows.forEach(r => {
+    if (r.floor <= 0) {
+      // 지하층: 기타작업
+      const label = r.floor === -1 ? 'B1층' : r.floor === -2 ? 'B2층' : `B${Math.abs(r.floor)}층`;
+      cleaningExtra.push({ building: r.bname, building_id: r.building_id, floor: r.floor, phase: r.phase, date: r.date, label: `${label} 청소(${r.phase}차)` });
+      return;
+    }
+    const key = `${r.bname}_${r.floor}_${r.phase}`;
+    if (!cleaningFloorMap[key]) cleaningFloorMap[key] = { building: r.bname, building_id: r.building_id, floor: r.floor, phase: r.phase, cleaned_units: new Set(), total_units: r.total_units, date: r.date, base_floor: r.cleaning_base_floor };
+    if (r.house_id) cleaningFloorMap[key].cleaned_units.add(r.house_id);
+    else cleaningFloorMap[key].cleaned_units.add(`nohouse_${r.date}`);
+  });
+
+  const cleaningByBuilding = {};
+  const cleaningDetails = [];
+  Object.values(cleaningFloorMap).forEach(f => {
+    const cleanedCount = f.cleaned_units.size;
+    const isComplete = cleanedCount >= f.total_units && f.total_units > 0;
+    const isBillable = isComplete && f.floor > (f.base_floor || 0);
+    const amount = isBillable ? f.total_units * cleaningPrice : 0;
+    if (!cleaningByBuilding[f.building]) cleaningByBuilding[f.building] = { building: f.building, building_id: f.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    if (isBillable) {
+      cleaningByBuilding[f.building].billable_amount += amount;
+      cleaningByBuilding[f.building].total_units += f.total_units;
+      cleaningByBuilding[f.building].floors.push({ floor: f.floor, phase: f.phase, units: f.total_units, amount, date: f.date });
+    }
+    cleaningDetails.push({ building: f.building, building_id: f.building_id, floor: f.floor, phase: f.phase, cleaned: cleanedCount, total: f.total_units, is_complete: isComplete, is_billable: isBillable, amount, date: f.date });
+  });
+  Object.values(cleaningByBuilding).forEach(b => {
+    b.remark = b.floors.map(f => `${f.floor}층(${f.phase}차)`).join(', ');
+  });
+  const cleaningTotal = Object.values(cleaningByBuilding).reduce((s, b) => s + b.billable_amount, 0);
+
+  // ── 인건비 (팀장 제외)
+  const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
+  const personnelRows = db.prepare(`
+    SELECT p.name, p.date, p.work_hours, p.ot_hours, p.night_hours
+    FROM personnel_records p
+    LEFT JOIN workers w ON w.name=p.name AND w.site_id=p.site_id
+    WHERE p.site_id=? AND strftime('%Y-%m', p.date)=?
+      AND (w.role IS NULL OR w.role != 'foreman')
+    ORDER BY p.name, p.date
+  `).all(siteId, month);
+  const expenseMap = {};
+  personnelRows.forEach(r => {
+    if (!expenseMap[r.name]) {
+      const priceRow = db.prepare(`SELECT unit_price FROM worker_wage_history WHERE site_id=? AND worker_name=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1`).get(siteId, r.name, endOfMonth);
+      expenseMap[r.name] = { name: r.name, unit_price: priceRow ? priceRow.unit_price : 0, total_md: 0 };
+    }
+    const baseMD = (r.work_hours || 0) / 8.0;
+    const extraMD = getWeight(r.ot_hours, r.night_hours);
+    expenseMap[r.name].total_md += baseMD + extraMD;
+  });
+  const expenseWorkers = Object.values(expenseMap).map(w => ({ ...w, amount: Math.round(w.total_md * w.unit_price) }));
+  const expenseTotal = expenseWorkers.reduce((s, w) => s + w.amount, 0);
+
+  res.json({
+    oiling: { by_building: Object.values(oilingByBuilding), details: oilingDetails, total: oilingTotal },
+    cleaning: { by_building: Object.values(cleaningByBuilding), details: cleaningDetails, total: cleaningTotal },
+    cleaning_extra: cleaningExtra,
+    expense: { workers: expenseWorkers, total: expenseTotal },
+    summary: { income: oilingTotal + cleaningTotal, expense: expenseTotal, net: oilingTotal + cleaningTotal - expenseTotal },
+    params: { month, split_day: splitDay, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode }
+  });
+});
+
+// ── 예상 수입 분석 API ──
+app.get('/api/analysis/projection', (req, res) => {
+  const { oiling_price = 74000, cleaning_price = 74000 } = req.query;
+  const siteId = req.siteId;
+  const oilingPrice = parseInt(oiling_price);
+  const cleaningPrice = parseInt(cleaning_price);
+
+  const buildings = db.prepare('SELECT * FROM buildings WHERE site_id=? ORDER BY id').all(siteId);
+  const houses = db.prepare('SELECT * FROM houses WHERE site_id=? ORDER BY building_id, line').all(siteId);
+
+  const oilingProjection = buildings.map(b => {
+    const bHouses = houses.filter(h => h.building_id === b.id);
+    const baseFloor = b.oiling_base_floor || 0;
+    const maxFloor = bHouses.length > 0 ? Math.max(...bHouses.map(h => h.floors)) : 0;
+    // 완료된 층 목록
+    const completedFloors = db.prepare(`SELECT DISTINCT floor FROM oiling_records WHERE site_id=? AND building_id=? AND floor>?`).all(siteId, b.id, baseFloor).map(r => r.floor);
+    // 전체 대상 층 (기준층+1 ~ 최고층)
+    const targetFloors = [];
+    for (let f = baseFloor + 1; f <= maxFloor; f++) {
+      const unitCount = bHouses.filter(h => h.floors >= f).length;
+      if (unitCount > 0) targetFloors.push({ floor: f, units: unitCount });
+    }
+    const completedSet = new Set(completedFloors);
+    const doneFloors = targetFloors.filter(f => completedSet.has(f.floor));
+    const remainFloors = targetFloors.filter(f => !completedSet.has(f.floor));
+    const doneAmount = doneFloors.reduce((s, f) => s + f.units * oilingPrice, 0);
+    const remainAmount = remainFloors.reduce((s, f) => s + f.units * oilingPrice, 0);
+    const totalAmount = targetFloors.reduce((s, f) => s + f.units * oilingPrice, 0);
+    return { building: b.name, building_id: b.id, base_floor: baseFloor, max_floor: maxFloor, total_target: targetFloors.length, completed: doneFloors.length, remaining: remainFloors.length, done_amount: doneAmount, remain_amount: remainAmount, total_amount: totalAmount };
+  });
+
+  const oilingDoneTotal = oilingProjection.reduce((s, b) => s + b.done_amount, 0);
+  const oilingRemainTotal = oilingProjection.reduce((s, b) => s + b.remain_amount, 0);
+  const oilingTotal = oilingProjection.reduce((s, b) => s + b.total_amount, 0);
+
+  res.json({
+    oiling: { by_building: oilingProjection, done_total: oilingDoneTotal, remain_total: oilingRemainTotal, total: oilingTotal },
+    params: { oiling_price: oilingPrice, cleaning_price: cleaningPrice }
   });
 });
 

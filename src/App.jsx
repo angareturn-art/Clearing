@@ -15,6 +15,8 @@ import SiteSelector from './components/SiteSelector';
 import AdvancedElevationView from './components/AdvancedElevationView';
 import SyncManager from './components/SyncManager';
 import MonthlyClosing from './components/MonthlyClosing';
+import MonthlyAnalysis from './components/MonthlyAnalysis';
+import RevenueProjection from './components/RevenueProjection';
 
 
 dayjs.locale('ko');
@@ -34,20 +36,23 @@ const parseFloor = (f) => {
 
 // ── 화면 탭 구성 (메뉴 버튼 목록) ──
 const TABS = [
-  { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },      // 현지 현황 요약
-  { id: 'elevation',  label: '배치도',    icon: 'grid_view' },      // 건물별 진행 상태 그리드
-  { id: 'visual_blueprint', label: '시각적 현황', icon: 'visibility' }, // 고도화 배치도
-  { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' }, // 날짜별 작업 내역
-  { id: 'records',    label: '기록',      icon: 'description' },    // 상세 기록 목록 및 관리
-  { id: 'cost',       label: '비용',      icon: 'payments' },       // 현장 비용 관리
-  { id: 'personnel',  label: '인원',      icon: 'badge' },          // 일일 출역/인원 관리
-  { id: 'workers',    label: '작업자',    icon: 'groups' },         // 작업자 마스터 관리
-  { id: 'payment_status', label: '기성 현황', icon: 'payments' },  // 공정별 기성비 산출
-  { id: 'closing',    label: '월별 마감', icon: 'price_check' },    // 월별 인원 공수 통합 및 엑셀 다운로드
-  { id: 'emergency',  label: '비상연락',  icon: 'emergency' },      // 주요 연락처 목록
-  { id: 'settings',   label: '기준정보',  icon: 'database' },       // 현장 및 동/호수 기본 설정
-  { id: 'sync',       label: '클라우드 동기화', icon: 'cloud_sync', adminOnly: true }, // Supabase 데이터 동기화
+  { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },
+  { id: 'elevation',  label: '배치도',    icon: 'grid_view' },
+  { id: 'visual_blueprint', label: '시각적 현황', icon: 'visibility' },
+  { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' },
+  { id: 'records',    label: '기록',      icon: 'description' },
+  { id: 'cost',       label: '비용',      icon: 'payments' },
+  { id: 'personnel',  label: '인원',      icon: 'badge' },
+  { id: 'workers',    label: '작업자',    icon: 'groups' },
+  { id: 'payment_status', label: '기성 현황', icon: 'payments' },
+  { id: 'closing',    label: '월별 마감', icon: 'price_check' },
+  { id: 'monthly_analysis', label: '월별 정산', icon: 'analytics' },
+  { id: 'projection', label: '예상 수입', icon: 'trending_up' },
+  { id: 'emergency',  label: '비상연락',  icon: 'emergency' },
+  { id: 'settings',   label: '기준정보',  icon: 'database' },
+  { id: 'sync',       label: '클라우드 동기화', icon: 'cloud_sync', adminOnly: true },
 ];
+
 
 function App() {
   // ── 상태 관리 (데이터를 담는 주머니들) ──
@@ -445,6 +450,8 @@ function App() {
         {activeTab === 'workers' && <WorkerManager currentSite={currentSite} />}
         {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} />}
         {activeTab === 'closing' && <MonthlyClosing siteId={currentSite?.id} token={localStorage.getItem('ba_token')} />}
+        {activeTab === 'monthly_analysis' && <MonthlyAnalysis currentSite={currentSite} buildings={buildings} />}
+        {activeTab === 'projection' && <RevenueProjection currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'emergency' && <EmergencyContacts />}
         {activeTab === 'sync' && <SyncManager currentUser={currentUser} />}
 
