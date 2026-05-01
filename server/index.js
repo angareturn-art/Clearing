@@ -1244,46 +1244,45 @@ app.get('/api/analysis/export-monthly', (req, res) => {
     const [year, monthNum] = month.split('-');
     const periodText = period_mode === 'split' ? `${parseInt(split_day) + 1}일~말일` : '전체기간';
 
-    // 엑셀 AOA 구성
+    // 엑셀 AOA 구성 (템플릿 매칭: B열 시작 구조)
     const aoa = [
-      [`[${siteName}] 월별 정산 내역서`],
-      [`${year}년 ${monthNum}월 (도급기간: ${periodText})`],
-      [],
-      ["1. 갱폼 박리제 도급 내역"],
-      ["동", "세대", "작업층/세대수", "금액"]
+      [null, `[${siteName}] 월별 정산 내역서`], // 1행 (B1)
+      [`${year}년 ${monthNum}월 (도급기간: ${periodText})`], // 2행 (A2)
+      [], // 3행
+      ["1. 갱폼 박리제 도급 내역"], // 4행 (A4)
+      [null, "동", "세대", "작업층/세대수", "금액"] // 5행 (B5~E5)
     ];
 
     data.oiling.by_building.forEach(b => {
-      aoa.push([b.building, b.total_units + "세대", b.remark, b.billable_amount]);
+      aoa.push([null, b.building, b.total_units + "세대", b.remark, b.billable_amount]);
     });
-    aoa.push(["소계", (data.oiling.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.oiling.total]);
-    aoa.push([]);
+    aoa.push([null, "소계", (data.oiling.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.oiling.total]);
+    aoa.push([]); // 섹션 간 공백
 
-    aoa.push(["2. 세대 청소 도급 내역"]);
-    aoa.push(["동", "세대", "작업층/차수", "금액"]);
+    aoa.push(["2. 세대 청소 도급 내역"]); // A열
+    aoa.push([null, "동", "세대", "작업층/차수", "금액"]);
     data.cleaning.by_building.forEach(b => {
-      aoa.push([b.building, b.total_units + "세대", b.remark, b.billable_amount]);
+      aoa.push([null, b.building, b.total_units + "세대", b.remark, b.billable_amount]);
     });
-    aoa.push(["소계", (data.cleaning.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.cleaning.total]);
+    aoa.push([null, "소계", (data.cleaning.by_building.reduce((s,b)=>s+b.total_units,0)) + "세대", "", data.cleaning.total]);
     aoa.push([]);
 
     if (data.cleaning_extra.length > 0) {
-      aoa.push(["3. 기타 작업 내역 (별도 청구)"]);
-      aoa.push(["동", "작업 내용", "비고(날짜)"]);
+      aoa.push(["3. 기타 작업 내역 (별도 청구)"]); // A열
+      aoa.push([null, "동", "작업 내용", "비고(날짜)"]);
       data.cleaning_extra.forEach(r => {
-        aoa.push([r.building, r.label, r.date]);
+        aoa.push([null, r.building, r.label, r.date]);
       });
       aoa.push([]);
     }
 
-    aoa.push(["─────────────────────────────────────────────────────────"]);
-    aoa.push(["합계 금액", "", "", data.summary.income + "원"]);
-    aoa.push(["─────────────────────────────────────────────────────────"]);
+    // 최하단 합계 행 (템플릿: [null, "합계 금액", null, "", total])
+    aoa.push([null, "합계 금액", null, "", data.summary.income]);
 
     const worksheet = xlsx.utils.aoa_to_sheet(aoa);
     
-    // 열 너비 조정
-    worksheet['!cols'] = [{ wch: 10 }, { wch: 15 }, { wch: 40 }, { wch: 15 }];
+    // 열 너비 조정 (A열 좁게, B~E열 확보)
+    worksheet['!cols'] = [{ wch: 25 }, { wch: 10 }, { wch: 15 }, { wch: 50 }, { wch: 15 }];
 
     const workbook = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(workbook, worksheet, '정산내역');
@@ -1299,6 +1298,7 @@ app.get('/api/analysis/export-monthly', (req, res) => {
     res.status(500).json({ error: '엑셀 파일 생성 중 오류가 발생했습니다.' });
   }
 });
+
 
 
 // ── 예상 수입 분석 API ──
