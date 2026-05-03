@@ -7,10 +7,9 @@ const fmt = (n) => (n || 0).toLocaleString();
 
 export default function MonthlyAnalysis({ currentSite }) {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
-  const [periodMode, setPeriodMode] = useState('split');
-  const [splitDay, setSplitDay] = useState(15);
   const [oilingPrice, setOilingPrice] = useState(74000);
   const [cleaningPrice, setCleaningPrice] = useState(74000);
+  const [periodMode, setPeriodMode] = useState('split');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -18,17 +17,22 @@ export default function MonthlyAnalysis({ currentSite }) {
 
   const siteId = currentSite?.id || 1;
   const token = localStorage.getItem('ba_token');
-  const headers = { Authorization: `Bearer ${token}`, 'X-Site-Id': siteId };
 
   const load = useCallback(async () => {
+    if (!token) return;
     setLoading(true);
     try {
-      const p = new URLSearchParams({ month, split_day: splitDay, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode });
+      const headers = { Authorization: `Bearer ${token}`, 'X-Site-Id': siteId };
+      const p = new URLSearchParams({ month, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode });
       const res = await fetch(`${API}/analysis/monthly?${p}`, { headers });
-      setData(await res.json());
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  }, [month, splitDay, oilingPrice, cleaningPrice, periodMode, siteId]);
+      const json = await res.json();
+      setData(json);
+    } catch (e) { 
+      console.error('Data Loading Error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [month, oilingPrice, cleaningPrice, periodMode, siteId, token]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -36,14 +40,13 @@ export default function MonthlyAnalysis({ currentSite }) {
   const cleaningDetails = data?.cleaning?.details || [];
   const filteredOiling = selectedBuilding ? oilingDetails.filter(r => r.building === selectedBuilding) : oilingDetails;
   const filteredCleaning = selectedBuilding ? cleaningDetails.filter(r => r.building === selectedBuilding) : cleaningDetails;
-  const filteredExtra = selectedBuilding ? (data?.cleaning_extra || []).filter(r => r.building === selectedBuilding) : (data?.cleaning_extra || []);
+  const filteredExtra = (data?.cleaning_extra || []).filter(r => !selectedBuilding || r.building === selectedBuilding);
 
   const handlePrint = () => window.print();
 
   const handleExcelDownload = () => {
     const p = new URLSearchParams({ 
       month, 
-      split_day: splitDay, 
       oiling_price: oilingPrice, 
       cleaning_price: cleaningPrice, 
       period_mode: periodMode 
@@ -51,47 +54,79 @@ export default function MonthlyAnalysis({ currentSite }) {
     window.location.href = `${API}/analysis/export-monthly?${p}`;
   };
 
+  // 동 필터 옵션 정렬 (숫자 기준)
+  const buildingOptions = React.useMemo(() => {
+    if (!data) return [];
+    const buildings = Array.from(new Set([
+      ...(data.oiling?.by_building || []).map(b => b.building),
+      ...(data.cleaning?.by_building || []).map(b => b.building)
+    ]));
+    return buildings.sort((a, b) => {
+      const numA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+      const numB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+      return numA - numB;
+    });
+  }, [data]);
+
+  if (loading && !data) {
+    return (
+      <div className="flex flex-col items-center justify-center p-20 space-y-4">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+        <p className="font-bold text-slate-500 text-lg animate-pulse">분석 데이터를 불러오는 중...</p>
+      </div>
+    );
+  }
+
+  if (!data && !loading) {
+    return <div className="p-20 text-center font-bold text-slate-400">데이터가 없거나 불러올 수 없습니다. 다시 시도해 주세요.</div>;
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-in fade-in duration-500">
       <style>{`@media print{.no-print{display:none!important}.print-only{display:block!important}.left-panel{width:100%!important}.right-panel{display:none!important}}`}</style>
 
       {/* 헤더 */}
       <div className="flex flex-wrap items-center justify-between gap-3 no-print">
         <h2 className="text-3xl font-black text-primary font-headline">📊 월별 통합 정산 분석</h2>
         <div className="flex gap-2">
-          <button onClick={handleExcelDownload} className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-lg font-bold text-sm hover:opacity-90 transition-opacity">
+          <button onClick={handleExcelDownload} className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-xl font-bold text-sm hover:opacity-90 transition-opacity">
             <span className="material-symbols-outlined text-sm">download</span> 엑셀 저장
           </button>
-          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-bold text-sm hover:bg-primary/90 transition-colors">
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 transition-colors">
             <span className="material-symbols-outlined text-sm">print</span> 청구서 출력
           </button>
         </div>
       </div>
 
       {/* 조건바 */}
-      <div className="flex flex-wrap gap-3 p-4 bg-surface-container rounded-xl border border-outline-variant/20 no-print">
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-outline uppercase">월</label>
-          <input type="month" value={month} onChange={e => setMonth(e.target.value)} className="border border-outline-variant/30 rounded px-2 py-1 text-sm font-bold bg-surface" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-white border border-slate-200 rounded-xl shadow-sm no-print items-end">
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">분석 월</label>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-outline uppercase">기준일</label>
-          <input type="number" value={splitDay} onChange={e => setSplitDay(e.target.value)} className="w-16 border border-outline-variant/30 rounded px-2 py-1 text-sm font-bold bg-surface" min="1" max="31" />
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">박리제 단가</label>
+            <input type="number" value={oilingPrice} onChange={(e) => setOilingPrice(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">청소 단가</label>
+            <input type="number" value={cleaningPrice} onChange={(e) => setCleaningPrice(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
+          </div>
         </div>
-        <div className="flex bg-surface p-1 rounded-lg border border-outline-variant/20">
-          {[['split','도급기간만'],['all','전체기간']].map(([v,l]) => (
-            <button key={v} onClick={() => setPeriodMode(v)} className={`px-3 py-1 rounded text-xs font-bold transition-all ${periodMode===v ? 'bg-primary text-white' : 'text-on-surface-variant'}`}>{l}</button>
-          ))}
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1">정산 모드</label>
+          <div className="flex bg-slate-100 p-1 rounded-lg">
+            <button onClick={() => setPeriodMode('split')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${periodMode === 'split' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>도급 (4/16~)</button>
+            <button onClick={() => setPeriodMode('full')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${periodMode === 'full' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>전체 기간</button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-outline">갱폼단가</label>
-          <input type="number" value={oilingPrice} onChange={e => setOilingPrice(e.target.value)} className="w-24 border border-outline-variant/30 rounded px-2 py-1 text-sm font-bold bg-surface" step="1000" />
+        <div className="flex items-center gap-2 p-2 bg-blue-50 text-blue-700 rounded-lg text-[11px] font-medium leading-tight">
+          <span className="material-symbols-outlined text-sm">info</span>
+          <div>
+            도급 시작일 <b>2026-04-16</b> 기준으로<br/>자동 정산됩니다. (변경 불가)
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-outline">청소단가</label>
-          <input type="number" value={cleaningPrice} onChange={e => setCleaningPrice(e.target.value)} className="w-24 border border-outline-variant/30 rounded px-2 py-1 text-sm font-bold bg-surface" step="1000" />
-        </div>
-        <button onClick={load} className="px-4 py-1 bg-secondary text-white rounded-lg text-sm font-bold">{loading ? '로딩중...' : '조회'}</button>
       </div>
 
       {/* 요약 카드 */}
@@ -205,7 +240,7 @@ export default function MonthlyAnalysis({ currentSite }) {
           {/* 동 필터 */}
           <div className="flex flex-wrap gap-2 no-print">
             <button onClick={() => setSelectedBuilding(null)} className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${!selectedBuilding ? 'bg-primary text-white' : 'border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high'}`}>전체</button>
-            {[...new Set([...(data?.oiling?.by_building||[]).map(b=>b.building), ...(data?.cleaning?.by_building||[]).map(b=>b.building)])].map(name => (
+            {buildingOptions.map(name => (
               <button key={name} onClick={() => setSelectedBuilding(selectedBuilding===name?null:name)}
                 className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${selectedBuilding===name ? 'bg-primary text-white' : 'border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high'}`}>{name}</button>
             ))}
@@ -323,7 +358,7 @@ export default function MonthlyAnalysis({ currentSite }) {
       <div className="hidden print-only p-8 space-y-6">
         <div className="text-center border-b-2 pb-4">
           <h1 className="text-2xl font-black">월별 정산 내역서</h1>
-          <p className="text-gray-600">{month} ({periodMode==='split'?`${splitDay+1}일~말일`:'전체기간'})</p>
+          <p className="text-gray-600">{month} ({periodMode === 'split' ? '도급: 2026-04-16 이후' : '전체 기간'})</p>
         </div>
         <div>
           <h2 className="font-bold text-lg mb-2">1. 갱폼 박리제 도급 내역</h2>

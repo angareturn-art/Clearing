@@ -120,7 +120,22 @@ function App() {
       'Authorization': `Bearer ${token}`,
       'X-Site-Id': currentSite.id
     };
-    return fetch(url, { ...options, headers });
+    
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 401) {
+        console.warn('Session expired. Hard resetting session...');
+        localStorage.removeItem('ba_token');
+        localStorage.removeItem('ba_user');
+        localStorage.removeItem('ba_current_site');
+        window.location.reload(); // 즉시 새로고침하여 상태 초기화
+        return null;
+      }
+      return res;
+    } catch (err) {
+      console.error('Fetch Error:', err);
+      return null;
+    }
   };
 
   const fetchBaseData = async () => {

@@ -1053,12 +1053,20 @@ app.post('/api/sync/run', authMiddleware, (req, res) => {
   const scriptPath = path.join(__dirname, '../../clearing-supabase-migration');
 
   // 버퍼 10MB 할당 (maxBuffer: 10485760)
-  exec('node compare-and-sync.js', { cwd: scriptPath, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-    isSyncRunning = false;
+  const nodePath = process.execPath;
+  const logFile = path.join(__dirname, '../debug_sync/last_execution.log');
 
-    if (error) {
-      console.error('Sync Error:', error.message);
-      return res.status(500).json({ error: stderr || error.message || '동기화 스크립트 실행 중 오류가 발생했습니다.' });
+  exec(`"${nodePath}" compare-and-sync.js`, { cwd: scriptPath, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    isSyncRunning = false;
+    
+    // 디버그 로그 저장
+    const debugContent = `--- SYNC EXECUTION LOG ---\nTimestamp: ${new Date().toLocaleString()}\nError: ${JSON.stringify(error)}\nStderr: ${stderr}\nStdout: ${stdout}\n`;
+    try { fs.writeFileSync(logFile, debugContent); } catch(e) {}
+
+    // stderr가 있어도 stdout에 마크다운 테이블 구조가 있으면 파싱 시도 (인코딩 안전 처리)
+    if (error && !stdout.includes('| :---')) {
+      console.error('Sync Fatal Error:', error.message);
+      return res.status(500).json({ error: stderr || error.message || '동기화 시스템이 응답하지 않습니다.' });
     }
 
     try {
@@ -1067,39 +1075,53 @@ app.post('/api/sync/run', authMiddleware, (req, res) => {
       let isParsingTable = false;
 
       for (const line of lines) {
-        if (line.includes('| 테이블명 |')) {
+        // 인코딩 문제에 대비하여 한글 대신 마크다운 구분자(| :---)로 파싱 시작 지점 포착
+        if (line.includes('| :---')) {
           isParsingTable = true;
           continue;
         }
-        if (isParsingTable && line.includes('| :---')) continue;
         
         if (isParsingTable && line.startsWith('|')) {
           const cols = line.split('|').map(s => s.trim()).filter(s => s !== '');
-          if (cols.length >= 4) {
+          if (cols.length >= 4 && !line.includes('테이블명')) {
+            const localVal = parseInt((cols[1] || '0').replace(/[^0-9]/g, ''));
+            const remoteVal = parseInt((cols[2] || '0').replace(/[^0-9]/g, ''));
             results.push({
               table: cols[0],
-              local: parseInt(cols[1].replace(/,/g, '')),
-              remote: parseInt(cols[2].replace(/,/g, '')),
-              status: cols[3]
+              local: isNaN(localVal) ? 0 : localVal,
+              remote: isNaN(remoteVal) ? 0 : remoteVal,
+              status: cols[3] || '알 수 없음'
             });
           }
         }
       }
 
       if (results.length === 0) {
-        return res.status(500).json({ error: '파싱 결과 없음. 로그:\n' + stdout });
+        console.error('Sync Parsing Failed. Stdout:', stdout);
+        return res.status(500).json({ error: '동기화 결과를 읽어올 수 없습니다. 서버 로그를 확인해주세요.' });
       }
 
       res.json({ success: true, results, log: stdout });
     } catch (err) {
       console.error('Parsing Error:', err);
-      res.status(500).json({ error: '결과 파싱 오류: ' + err.message });
+      res.status(500).json({ error: '결과 처리 중 오류가 발생했습니다: ' + err.message });
     }
   });
 });
 
+// 동 이름 숫자 기준 정렬 유틸리티
+const sortByBuildingName = (list) => {
+  return [...list].sort((a, b) => {
+    const numA = parseInt(a.building.replace(/[^0-9]/g, '')) || 0;
+    const numB = parseInt(b.building.replace(/[^0-9]/g, '')) || 0;
+    return numA - numB;
+  });
+};
+
 // ── 월별 통합 정산 분석 데이터 계산 함수 (공통) ──
-const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, cleaningPrice, periodMode) => {
+const calculateMonthlyAnalysisData = (siteId, month, oilingPrice, cleaningPrice, periodMode) => {
+  const CONTRACT_START_DATE = '2026-04-16'; // 도급 시작일 고정
+
   // 모든 건물 + 기준층 정보
   const buildings = db.prepare('SELECT * FROM buildings WHERE site_id=? ORDER BY id').all(siteId);
   const houses = db.prepare('SELECT * FROM houses WHERE site_id=? ORDER BY building_id, line').all(siteId);
@@ -1110,8 +1132,8 @@ const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, clea
   let oilingWhere = `strftime('%Y-%m', o.date) = ?`;
   const oilingParams = [siteId, month];
   if (periodMode === 'split') {
-    oilingWhere += ` AND CAST(strftime('%d', o.date) AS INTEGER) > ?`;
-    oilingParams.push(splitDay);
+    oilingWhere += ` AND o.date >= ?`;
+    oilingParams.push(CONTRACT_START_DATE);
   }
   const oilingRows = db.prepare(`
     SELECT o.id, o.date, o.floor, o.building_id,
@@ -1128,25 +1150,35 @@ const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, clea
   oilingRows.forEach(r => {
     const isBillable = r.floor > (r.oiling_base_floor || 0);
     const amount = isBillable ? r.unit_count * oilingPrice : 0;
-    if (!oilingByBuilding[r.bname]) oilingByBuilding[r.bname] = { building: r.bname, building_id: r.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    
+    if (!oilingByBuilding[r.bname]) {
+      oilingByBuilding[r.bname] = { building: r.bname, building_id: r.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    }
+    
+    // 금액 발생 여부와 관계없이 작업 내역 수집 (사용자 요청: 6동 등 제외 대상도 비고 표시)
+    oilingByBuilding[r.bname].floors.push({ floor: r.floor, units: r.unit_count, amount, date: r.date, is_billable: isBillable });
     if (isBillable) {
       oilingByBuilding[r.bname].billable_amount += amount;
       oilingByBuilding[r.bname].total_units += r.unit_count;
-      oilingByBuilding[r.bname].floors.push({ floor: r.floor, units: r.unit_count, amount, date: r.date });
     }
+    
     oilingDetails.push({ id: r.id, date: r.date, building: r.bname, building_id: r.building_id, floor: r.floor, oiling_base_floor: r.oiling_base_floor, units: r.unit_count, is_billable: isBillable, amount });
   });
+
+  // 비고 문자열 생성
   Object.values(oilingByBuilding).forEach(b => {
-    b.remark = b.floors.map(f => `${f.floor}층(${f.units}세대)`).join(', ');
+    b.remark = b.floors.map(f => `${f.floor}층(${f.units}세대)${f.is_billable ? '' : '(제외)'}`).join(', ');
   });
-  const oilingTotal = Object.values(oilingByBuilding).reduce((s, b) => s + b.billable_amount, 0);
+  
+  const oilingListSorted = sortByBuildingName(Object.values(oilingByBuilding));
+  const oilingTotal = oilingListSorted.reduce((s, b) => s + b.billable_amount, 0);
 
   // ── 세대청소 쿼리
   let cleaningWhere = `strftime('%Y-%m', c.date) = ?`;
   const cleaningParams = [siteId, month];
   if (periodMode === 'split') {
-    cleaningWhere += ` AND CAST(strftime('%d', c.date) AS INTEGER) > ?`;
-    cleaningParams.push(splitDay);
+    cleaningWhere += ` AND c.date >= ?`;
+    cleaningParams.push(CONTRACT_START_DATE);
   }
   const cleaningRows = db.prepare(`
     SELECT c.building_id, c.floor, c.phase, c.house_id, c.date,
@@ -1167,7 +1199,9 @@ const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, clea
       return;
     }
     const key = `${r.bname}_${r.floor}_${r.phase}`;
-    if (!cleaningFloorMap[key]) cleaningFloorMap[key] = { building: r.bname, building_id: r.building_id, floor: r.floor, phase: r.phase, cleaned_units: new Set(), total_units: r.total_units, date: r.date, base_floor: r.cleaning_base_floor };
+    if (!cleaningFloorMap[key]) {
+      cleaningFloorMap[key] = { building: r.bname, building_id: r.building_id, floor: r.floor, phase: r.phase, cleaned_units: new Set(), total_units: r.total_units, date: r.date, base_floor: r.cleaning_base_floor };
+    }
     if (r.house_id) cleaningFloorMap[key].cleaned_units.add(r.house_id);
     else cleaningFloorMap[key].cleaned_units.add(`nohouse_${r.date}`);
   });
@@ -1179,18 +1213,27 @@ const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, clea
     const isComplete = cleanedCount >= f.total_units && f.total_units > 0;
     const isBillable = isComplete && f.floor > (f.base_floor || 0);
     const amount = isBillable ? f.total_units * cleaningPrice : 0;
-    if (!cleaningByBuilding[f.building]) cleaningByBuilding[f.building] = { building: f.building, building_id: f.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    
+    if (!cleaningByBuilding[f.building]) {
+      cleaningByBuilding[f.building] = { building: f.building, building_id: f.building_id, billable_amount: 0, total_units: 0, floors: [] };
+    }
+    
+    // 금액 제외 대상도 내역 수집
+    cleaningByBuilding[f.building].floors.push({ floor: f.floor, phase: f.phase, units: f.total_units, amount, date: f.date, is_billable: isBillable });
     if (isBillable) {
       cleaningByBuilding[f.building].billable_amount += amount;
       cleaningByBuilding[f.building].total_units += f.total_units;
-      cleaningByBuilding[f.building].floors.push({ floor: f.floor, phase: f.phase, units: f.total_units, amount, date: f.date });
     }
+    
     cleaningDetails.push({ building: f.building, building_id: f.building_id, floor: f.floor, phase: f.phase, cleaned: cleanedCount, total: f.total_units, is_complete: isComplete, is_billable: isBillable, amount, date: f.date });
   });
+
   Object.values(cleaningByBuilding).forEach(b => {
-    b.remark = b.floors.map(f => `${f.floor}층(${f.phase}차)`).join(', ');
+    b.remark = b.floors.map(f => `${f.floor}층(${f.phase}차)${f.is_billable ? '' : '(제외)'}`).join(', ');
   });
-  const cleaningTotal = Object.values(cleaningByBuilding).reduce((s, b) => s + b.billable_amount, 0);
+  
+  const cleaningListSorted = sortByBuildingName(Object.values(cleaningByBuilding));
+  const cleaningTotal = cleaningListSorted.reduce((s, b) => s + b.billable_amount, 0);
 
   // ── 인건비
   const endOfMonth = dayjs(month).endOf('month').format('YYYY-MM-DD');
@@ -1216,33 +1259,35 @@ const calculateMonthlyAnalysisData = (siteId, month, splitDay, oilingPrice, clea
   const expenseTotal = expenseWorkers.reduce((s, w) => s + w.amount, 0);
 
   return {
-    oiling: { by_building: Object.values(oilingByBuilding), details: oilingDetails, total: oilingTotal },
-    cleaning: { by_building: Object.values(cleaningByBuilding), details: cleaningDetails, total: cleaningTotal },
-    cleaning_extra: cleaningExtra,
+    oiling: { by_building: oilingListSorted, details: oilingDetails, total: oilingTotal },
+    cleaning: { by_building: cleaningListSorted, details: cleaningDetails, total: cleaningTotal },
+    cleaning_extra: sortByBuildingName(cleaningExtra),
     expense: { workers: expenseWorkers, total: expenseTotal },
     summary: { income: oilingTotal + cleaningTotal, expense: expenseTotal, net: oilingTotal + cleaningTotal - expenseTotal },
-    params: { month, split_day: splitDay, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode }
+    params: { month, contract_start_date: CONTRACT_START_DATE, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode }
   };
 };
 
 app.get('/api/analysis/monthly', (req, res) => {
-  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
+  const { month, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
   if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
-  const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(split_day), parseInt(oiling_price), parseInt(cleaning_price), period_mode);
+  const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(oiling_price), parseInt(cleaning_price), period_mode);
   res.json(data);
 });
 
 app.get('/api/analysis/export-monthly', (req, res) => {
-  const { month, split_day = 15, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
+  const { month, oiling_price = 74000, cleaning_price = 74000, period_mode = 'split' } = req.query;
   if (!month) return res.status(400).json({ error: 'month 파라미터 필요' });
   
   try {
-    const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(split_day), parseInt(oiling_price), parseInt(cleaning_price), period_mode);
+    const data = calculateMonthlyAnalysisData(req.siteId, month, parseInt(oiling_price), parseInt(cleaning_price), period_mode);
     const site = db.prepare('SELECT name FROM sites WHERE id=?').get(req.siteId);
     const siteName = site ? site.name : 'Clearing';
     
     const [year, monthNum] = month.split('-');
-    const periodText = period_mode === 'split' ? `${parseInt(split_day) + 1}일~말일` : '전체기간';
+    const CONTRACT_START_DATE = '2026-04-16';
+    const isApril26 = month === '2026-04';
+    const periodText = period_mode === 'split' ? (isApril26 ? '16일~말일' : '전체기간') : '전체기간';
 
     // 엑셀 AOA 구성 (템플릿 매칭: B열 시작 구조)
     const aoa = [
