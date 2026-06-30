@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import dayjs from 'dayjs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 export default function SyncManager({ currentUser }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -27,6 +27,14 @@ export default function SyncManager({ currentUser }) {
 
       const data = await response.json();
 
+      if (response.status === 401) {
+        localStorage.removeItem('ba_token');
+        localStorage.removeItem('ba_user');
+        localStorage.removeItem('ba_current_site');
+        window.location.reload();
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(data.error || '알 수 없는 서버 오류가 발생했습니다.');
       }
@@ -34,7 +42,18 @@ export default function SyncManager({ currentUser }) {
       setResults(data.results);
       setLastSyncTime(dayjs().format('YYYY-MM-DD HH:mm:ss'));
     } catch (err) {
-      setError(err.message);
+      if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
+        setError(
+          '서버에 연결할 수 없습니다. (Failed to fetch)\n\n' +
+          '▶ 해결 방법:\n' +
+          '  1. 터미널에서 아래 명령 실행:\n' +
+          '     cd c:\\Antigravity\\TEst\\Clearing\\server\n' +
+          '     node index.js\n\n' +
+          '  2. "Listening on port 5000" 메시지 확인 후 다시 시도'
+        );
+      } else {
+        setError(err.message);
+      }
     } finally {
       setIsSyncing(false);
     }

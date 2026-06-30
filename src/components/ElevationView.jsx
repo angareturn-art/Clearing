@@ -18,54 +18,67 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
     // 2. 청소 기록들을 필터링하고 최신순으로 정렬합니다.
     const cleaningRecords = summary.cleaning?.filter(r => r.house_id === houseId && r.floor === floor) || [];
     const latestCleaning = [...cleaningRecords].sort((a, b) => b.date.localeCompare(a.date) || b.phase - a.phase)[0];
-      
-    // 3. 해당 칸의 최종 상태 정보를 반환합니다.
+
+    // 3. 하역 기록
+    const unloadingRecords = summary.unloading?.filter(r => r.house_id === houseId && r.floor === floor) || [];
+    const latestUnloading = [...unloadingRecords].sort((a, b) => b.date.localeCompare(a.date) || b.phase - a.phase)[0];
+
+    // 4. 해당 칸의 최종 상태 정보를 반환합니다.
     return {
-      isOiled:      !!oiling,         // 기름칠 되었는가?
-      oilingDate:   oiling?.date || null,
-      phase:        latestCleaning ? latestCleaning.phase : 0,    // 몇 차 청소인가?
-      progress:     latestCleaning ? latestCleaning.progress : 0, // 청소 진행률(50% 또는 100%)
-      cleaningDate: latestCleaning?.date || null,
-      cleanCount:   cleaningRecords.length, // 중복 작업 수량 (청소 기준)
+      isOiled:         !!oiling,
+      oilingDate:      oiling?.date || null,
+      phase:           latestCleaning ? latestCleaning.phase : 0,
+      progress:        latestCleaning ? latestCleaning.progress : 0,
+      cleaningDate:    latestCleaning?.date || null,
+      cleanCount:      cleaningRecords.length,
+      unloadPhase:     latestUnloading ? latestUnloading.phase : 0,
+      unloadProgress:  latestUnloading ? latestUnloading.progress : 0,
+      unloadingDate:   latestUnloading?.date || null,
+      unloadCount:     unloadingRecords.length,
     };
   };
 
   const BASE_LIMITS = {
-    oiling:   { '1동': 7, '2동': 7, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
-    cleaning: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
+    oiling:    { '1동': 7, '2동': 7, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
+    cleaning:  { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
+    unloading: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 },
   };
 
   const getLimit = (buildingName) => {
-    const mode = viewMode === 'oiling' ? 'oiling' : 'cleaning';
+    const mode = viewMode === 'oiling' ? 'oiling' : viewMode === 'unloading' ? 'unloading' : 'cleaning';
     return BASE_LIMITS[mode][buildingName] || 0;
   };
 
   // ── 상태에 따른 칸의 배경색 결정 ──
   const getCellBg = (status) => {
-    let bg = 'bg-surface-container-lowest border border-outline-variant/30 text-outline'; // 기본 (작업 전)
-    
+    let bg = 'bg-surface-container-lowest border border-outline-variant/30 text-outline';
+
     if (viewMode === 'oiling') {
-      // 1. 박리제(기름칠) 모드일 때
-      if (status.isOiled) bg = 'bg-warning text-white border-0 shadow-sm'; // 기름칠 완료 (노란색)
-      else                 bg = 'opacity-30';                            // 작업 전 (반투명)
+      if (status.isOiled) bg = 'bg-warning text-white border-0 shadow-sm';
+      else                bg = 'opacity-30';
     } else if (viewMode === 'cleaning') {
-      // 2. 청소 모드일 때
-      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm'; // 청소 완료 (초록색)
-      else if (status.phase > 0)    bg = 'bg-sky-500 text-white border-0 shadow-sm'; // 청소 진행 중 (하늘색)
-      else                          bg = 'opacity-30';                            // 작업 전 (반투명)
+      if (status.phase >= 2)     bg = 'bg-success text-white border-0 shadow-sm';
+      else if (status.phase >= 1) bg = 'bg-sky-500 text-white border-0 shadow-sm';
+      else                        bg = 'opacity-30';
+    } else if (viewMode === 'unloading') {
+      if (status.unloadProgress === 100)  bg = 'bg-tertiary text-white border-0 shadow-sm';
+      else if (status.unloadPhase > 0)    bg = 'bg-purple-400 text-white border-0 shadow-sm';
+      else                                bg = 'opacity-30';
     } else {
-      // 3. 현장 전체 통합 모드일 때
-      if (status.progress === 100)  bg = 'bg-success text-white border-0 shadow-sm'; // 청소 완료가 최우선 표시
-      else if (status.phase > 0)    bg = 'bg-sky-500 text-white border-0 shadow-sm'; // 청소 진행 중 (하늘색)
-      else if (status.isOiled)      bg = 'bg-primary text-white border-0 shadow-sm'; // 청소 전이면 기름칠 상태 표시 (파란색)
+      // 전체 통합: 하역 > 청소 > 기름칠 순으로 최우선 표시
+      if (status.unloadPhase >= 1)        bg = 'bg-tertiary text-white border-0 shadow-sm';
+      else if (status.phase >= 2)         bg = 'bg-success text-white border-0 shadow-sm';
+      else if (status.phase >= 1)         bg = 'bg-sky-500 text-white border-0 shadow-sm';
+      else if (status.isOiled)            bg = 'bg-primary text-white border-0 shadow-sm';
     }
     return bg;
   };
 
   const getDisplayDate = (status) => {
-    if (viewMode === 'oiling')   return formatDate(status.oilingDate);
-    if (viewMode === 'cleaning') return formatDate(status.cleaningDate);
-    return formatDate(status.cleaningDate) || formatDate(status.oilingDate);
+    if (viewMode === 'oiling')    return formatDate(status.oilingDate);
+    if (viewMode === 'cleaning')  return formatDate(status.cleaningDate);
+    if (viewMode === 'unloading') return formatDate(status.unloadingDate);
+    return formatDate(status.unloadingDate) || formatDate(status.cleaningDate) || formatDate(status.oilingDate);
   };
 
   // 셀 (지상/지하 공통) - h-8 고정
@@ -102,7 +115,7 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
   };
 
   // ── 층수 레이블 컬럼 (왼쪽 고정)
-  const FloorLabelColumn = ({ basementCount, maxFloors, limit, liftingFloor, targetFloor }) => (
+  const FloorLabelColumn = ({ basementCount, maxFloors, limit }) => (
     <div className="flex flex-col-reverse gap-1 items-end pr-1 flex-shrink-0">
       {/* 하단 "호" 레이블 자리 맞춤 스페이서 */}
       <div className="h-[22px] mt-2 mb-1 border-t border-transparent pt-1 flex items-center justify-end">
@@ -113,12 +126,9 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
       {Array.from({ length: basementCount }).map((_, i) => {
         const floor = -(basementCount - i);
         const label = floor === -1 ? 'B1' : floor === -2 ? 'B2' : `B${Math.abs(floor)}`;
-        const isLifting = floor === liftingFloor;
-        const isTarget = floor === targetFloor;
         return (
-          <div key={floor} className={`h-8 flex items-center justify-end gap-1 px-1 rounded-sm ${isTarget ? 'bg-error/10 border border-error/20' : ''}`}>
-            {isLifting && <span className="text-[10px] animate-bounce">🏗️</span>}
-            <span className={`text-[9px] font-black ${isLifting ? 'text-primary' : isTarget ? 'text-error' : 'text-outline'}`}>{label}</span>
+          <div key={floor} className="h-8 flex items-center justify-end gap-1 px-1 rounded-sm">
+            <span className="text-[9px] font-black text-outline">{label}</span>
           </div>
         );
       })}
@@ -129,14 +139,11 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
       {/* 지상층 레이블 */}
       {Array.from({ length: maxFloors }).map((_, i) => {
         const floor = i + 1;
-        const isLifting = floor === liftingFloor;
-        const isTarget = floor === targetFloor;
         return (
           <React.Fragment key={floor}>
             {floor === limit + 1 && <div className="w-full h-[2px] my-[1px]" />}
-            <div className={`h-8 flex items-center justify-end gap-1 px-1 rounded-sm ${isTarget ? 'bg-error/10 border border-error/20' : ''}`}>
-              {isLifting && <span className="text-[10px] animate-bounce">🏗️</span>}
-              <span className={`text-[9px] font-bold leading-none ${isLifting ? 'text-primary' : isTarget ? 'text-error' : (floor === 1 ? 'text-on-surface-variant' : 'text-outline-variant/70')}`}>
+            <div className="h-8 flex items-center justify-end gap-1 px-1 rounded-sm">
+              <span className={`text-[9px] font-bold leading-none ${floor === 1 ? 'text-on-surface-variant' : 'text-outline-variant/70'}`}>
                 {floor}
               </span>
             </div>
@@ -269,31 +276,11 @@ const ElevationView = ({ buildings, summary, onCellClick, viewMode = 'total' }) 
                   /* ── 전체/청소 모드 */
                   <div className="flex gap-1 items-end justify-start overflow-x-auto pb-2 no-scrollbar">
                     {/* 층수 레이블 컬럼 */}
-                    {(() => {
-                      const liftingRecords = summary.lifting?.filter(r => r.building_id === b.id) || [];
-                      const maxLifting = liftingRecords.length > 0 ? Math.max(...liftingRecords.map(r => r.floor)) : null;
-                      
-                      // 타겟 층 계산 로직 (Dashboard와 동일)
-                      let targetF = null;
-                      if (maxLifting !== null) {
-                        const allFloors = [
-                          ...Array.from({ length: basementCount }).map((_, i) => -(basementCount - i)),
-                          ...Array.from({ length: maxFloors }).map((_, i) => i + 1)
-                        ].sort((a, b) => a - b);
-                        const curIdx = allFloors.indexOf(maxLifting);
-                        targetF = curIdx >= 2 ? allFloors[curIdx - 2] : null;
-                      }
-
-                      return (
-                        <FloorLabelColumn
-                          basementCount={basementCount}
-                          maxFloors={maxFloors}
-                          limit={limit}
-                          liftingFloor={maxLifting}
-                          targetFloor={targetF}
-                        />
-                      );
-                    })()}
+                    <FloorLabelColumn
+                      basementCount={basementCount}
+                      maxFloors={maxFloors}
+                      limit={limit}
+                    />
 
                     {/* 호수별 열 */}
                     {b.houses.map(house => (

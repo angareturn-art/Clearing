@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 export default function SiteSelector({ onSelect }) {
   const [sites, setSites] = useState([]);

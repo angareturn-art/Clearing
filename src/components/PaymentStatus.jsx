@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import dayjs from 'dayjs';
+
+const API_URL = '/api';
 
 const CONFIG = {
   oiling: {
@@ -9,95 +11,187 @@ const CONFIG = {
   },
   cleaning: {
     label: '세대청소',
-    unitPrice: 148000,
+    unitPrice: 74000,
     limits: { '1동': 4, '2동': 4, '3동': 3, '4동': 3, '5동': 3, '6동': 3, '9동': 3, '7동': 2, '8동': 2 }
   }
 };
 
-export default function PaymentStatus({ buildings, summary }) {
+const formatFloorRanges = (floors) => {
+  const sorted = [...floors].sort((a, b) => a - b);
+  const ranges = [];
+  let start = null;
+  let end = null;
+
+  sorted.forEach((floor) => {
+    if (start === null) {
+      start = floor;
+      end = floor;
+      return;
+    }
+    if (floor === end + 1) {
+      end = floor;
+      return;
+    }
+    ranges.push(start === end ? `${start}층` : `${start}-${end}층`);
+    start = floor;
+    end = floor;
+  });
+
+  if (start !== null) {
+    ranges.push(start === end ? `${start}층` : `${start}-${end}층`);
+  }
+
+  return ranges.join(', ');
+};
+
+export default function PaymentStatus({ buildings, summary, currentSite }) {
   const [activeMode, setActiveMode] = useState('oiling');
+  const [monthlyAnalysisByMonth, setMonthlyAnalysisByMonth] = useState({});
+  const [loadingMonthly, setLoadingMonthly] = useState(false);
+  const [analysisError, setAnalysisError] = useState(null);
+
   const config = CONFIG[activeMode];
 
-  // 1. 공정별 레코드 필터링 및 정산 정보 계산
-  const stats = useMemo(() => {
-    const limits = config.limits;
-    const unitPrice = config.unitPrice;
+  const availableMonths = useMemo(() => {
+    const records = activeMode === 'oiling' ? summary?.oiling || [] : summary?.cleaning || [];
+    const months = Array.from(new Set(records.filter(r => r?.date).map(r => dayjs(r.date).format('YYYY-MM'))));
+    return months.sort((a, b) => b.localeCompare(a));
+  }, [summary, activeMode]);
 
-    const buildingStats = buildings.map(b => {
-      const limit = limits[b.name] || 0;
-      
-      // 전체 대상 세대수 (기준층 초과)
-      let totalTargetHouseholds = 0;
-      b.houses.forEach(h => {
-        const targetFloors = Math.max(0, h.floors - limit);
-        totalTargetHouseholds += targetFloors;
+  useEffect(() => {
+    if (availableMonths.length === 0) return;
+    if (!availableMonths.includes(Object.keys(monthlyAnalysisByMonth)[0] || '')) return;
+    // no-op: rely on fetch effect below to load valid months
+  }, [availableMonths, monthlyAnalysisByMonth]);
+
+  useEffect(() => {
+    if (!currentSite) return;
+    const monthsToLoad = availableMonths.length > 0 ? availableMonths : [dayjs().format('YYYY-MM')];
+    const missingMonths = monthsToLoad.filter(m => !monthlyAnalysisByMonth[m]);
+    if (missingMonths.length === 0) return;
+
+    setLoadingMonthly(true);
+    setAnalysisError(null);
+
+    Promise.all(missingMonths.map(async month => {
+      const params = new URLSearchParams({
+        month,
+        oiling_price: String(CONFIG.oiling.unitPrice),
+        cleaning_price: String(CONFIG.cleaning.unitPrice),
+        period_mode: 'split'
       });
-
-      // 완료된 대상 세대수 집계
-      let completedTargetHouseholds = 0;
-      if (activeMode === 'oiling') {
-        const targetRecords = (summary.oiling || []).filter(r => r.building_id === b.id && r.floor > limit);
-        targetRecords.forEach(r => {
-          completedTargetHouseholds += b.houses.filter(h => h.floors >= r.floor).length;
-        });
-      } else {
-        // 세대청소는 각 세대별(house_id)로 phase 4, progress 100% 확인 필요
-        // 단, Turn 5에서 oiling은 층별 통합으로 바뀌었으나 cleaning은 여전히 세대별 기록일 가능성이 큼.
-        // cleaning records에서 기준층 초과 세대 중 4차 완료된 것 필터링
-        const targetRecords = (summary.cleaning || []).filter(r => {
-          const house = b.houses.find(h => h.id === r.house_id);
-          return house && r.floor > limit && r.phase === 4 && r.progress === 100;
-        });
-        completedTargetHouseholds = targetRecords.length;
+      const res = await fetch(`${API_URL}/analysis/monthly?${params}`, {
+        headers: {
+          'X-Site-Id': currentSite.id,
+          Authorization: `Bearer ${localStorage.getItem('ba_token')}`
+        }
+      });
+      if (!res.ok) {
+        throw new Error(`월별 정산 데이터를 불러오는 중 오류가 발생했습니다: ${month}`);
       }
+      return res.json();
+    }))
+      .then(results => {
+        setMonthlyAnalysisByMonth(prev => {
+          const next = { ...prev };
+          missingMonths.forEach((month, index) => { next[month] = results[index]; });
+          return next;
+        });
+      })
+      .catch(err => {
+        console.error(err);
+        setAnalysisError(err.message || '월별 정산 데이터 로드 실패');
+      })
+      .finally(() => setLoadingMonthly(false));
+  }, [availableMonths, currentSite, monthlyAnalysisByMonth]);
 
+  const getDetailsForMonths = (months) =>
+    months.flatMap(month => (monthlyAnalysisByMonth[month]?.[activeMode]?.details || []).filter(r => r.is_billable));
+
+  const monthStats = useMemo(() => {
+    const months = Object.keys(monthlyAnalysisByMonth).sort((a, b) => b.localeCompare(a));
+    return months.map(month => {
+      const details = (monthlyAnalysisByMonth[month]?.[activeMode]?.details || []).filter(r => r.is_billable);
+      const households = details.reduce((sum, r) => sum + (activeMode === 'oiling' ? (r.units || 0) : (r.total || 0)), 0);
+      const amount = details.reduce((sum, r) => sum + (r.amount || 0), 0);
+      return { month, households, amount };
+    });
+  }, [monthlyAnalysisByMonth, activeMode]);
+
+  const buildingStats = useMemo(() => {
+    const allDetails = getDetailsForMonths(Object.keys(monthlyAnalysisByMonth));
+
+    return buildings.map(b => {
+      const buildingDetails = allDetails.filter(r => r.building_id === b.id || r.building === b.name);
+      const completedTargetHouseholds = buildingDetails.reduce((sum, r) => sum + (activeMode === 'oiling' ? (r.units || 0) : (r.total || 0)), 0);
+      const amount = buildingDetails.reduce((sum, r) => sum + (r.amount || 0), 0);
+      const limit = config.limits[b.name] || 0;
+      const totalTargetHouseholds = b.houses.reduce((sum, h) => sum + Math.max(0, h.floors - limit), 0);
       return {
         id: b.id,
         name: b.name,
         limit,
         totalTargetHouseholds,
         completedTargetHouseholds,
-        amount: completedTargetHouseholds * unitPrice,
-        totalAmount: totalTargetHouseholds * unitPrice
+        amount,
+        totalAmount: totalTargetHouseholds * config.unitPrice
       };
     });
+  }, [buildings, monthlyAnalysisByMonth, activeMode, config]);
 
-    // 월별 집계
-    const monthlyMap = {};
-    const relevantRecords = activeMode === 'oiling' 
-      ? (summary.oiling || []).filter(r => {
-          const b = buildings.find(build => build.id === r.building_id);
-          return b && r.floor > limits[b.name];
-        })
-      : (summary.cleaning || []).filter(r => {
-          const b = buildings.find(build => build.houses.some(h => h.id === r.house_id));
-          const limit = b ? limits[b.name] : 0;
-          return b && r.floor > limit && r.phase === 4 && r.progress === 100;
-        });
+  const totalSum = buildingStats.reduce((acc, b) => acc + b.amount, 0);
+  const potentialSum = buildingStats.reduce((acc, b) => acc + b.totalAmount, 0);
 
-    relevantRecords.forEach(r => {
-      const month = dayjs(r.date).format('YYYY-MM');
-      if (!monthlyMap[month]) monthlyMap[month] = { households: 0, amount: 0 };
-      
-      let count = 1;
-      if (activeMode === 'oiling') {
-        const b = buildings.find(build => build.id === r.building_id);
-        count = b.houses.filter(h => h.floors >= r.floor).length;
-      }
+  const buildingMonthRanges = useMemo(() => {
+    const months = Object.keys(monthlyAnalysisByMonth).sort((a, b) => b.localeCompare(a));
+    const ranges = {};
 
-      monthlyMap[month].households += count;
-      monthlyMap[month].amount += count * unitPrice;
+    months.forEach(month => {
+      const details = (monthlyAnalysisByMonth[month]?.[activeMode]?.details || []).filter(r => r.is_billable);
+      details.forEach(r => {
+        const buildingName = r.building || buildings.find(b => b.id === r.building_id)?.name;
+        if (!buildingName) return;
+        if (!ranges[buildingName]) ranges[buildingName] = {};
+        if (!ranges[buildingName][month]) ranges[buildingName][month] = {};
+
+        const phase = activeMode === 'cleaning' ? (r.phase || 1) : 1;
+        const phaseKey = `phase_${phase}`;
+        if (!ranges[buildingName][month][phaseKey]) {
+          ranges[buildingName][month][phaseKey] = { floors: new Set(), amount: 0 };
+        }
+        ranges[buildingName][month][phaseKey].floors.add(r.floor);
+        ranges[buildingName][month][phaseKey].amount += r.amount || 0;
+      });
     });
 
-    const monthlyStats = Object.entries(monthlyMap)
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([month, data]) => ({ month, ...data }));
+    return Object.entries(ranges).map(([building, months]) => ({
+      building,
+      monthRanges: Object.entries(months)
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([month, phases]) => {
+          const expectedPhases = activeMode === 'cleaning' ? [1, 2] : [1];
+          return {
+            month,
+            phaseRanges: expectedPhases.map(phase => {
+              const data = phases[`phase_${phase}`];
+              if (data) {
+                return {
+                  phase,
+                  range: formatFloorRanges([...data.floors]),
+                  amount: data.amount
+                };
+              }
 
-    return { buildingStats, monthlyStats };
-  }, [buildings, summary, activeMode, config]);
-
-  const totalSum = stats.buildingStats.reduce((acc, b) => acc + b.amount, 0);
-  const potentialSum = stats.buildingStats.reduce((acc, b) => acc + b.totalAmount, 0);
+              return {
+                phase,
+                range: '미정',
+                amount: 0
+              };
+            })
+          };
+        })
+    }));
+  }, [buildings, monthlyAnalysisByMonth, activeMode]);
 
   return (
     <div className="space-y-8">
@@ -129,7 +223,7 @@ export default function PaymentStatus({ buildings, summary }) {
           </div>
           <p className="font-label text-xs uppercase tracking-widest text-primary font-bold opacity-70">총 {config.label} 기성 대상</p>
           <h3 className="text-3xl font-black text-primary mt-2 font-headline">
-            {stats.buildingStats.reduce((acc, b) => acc + b.totalTargetHouseholds, 0).toLocaleString()} <span className="text-base font-bold">세대</span>
+            {buildingStats.reduce((acc, b) => acc + b.totalTargetHouseholds, 0).toLocaleString()} <span className="text-base font-bold">세대</span>
           </h3>
         </div>
         <div className="bg-secondary/5 border border-secondary/20 rounded-2xl p-6 relative overflow-hidden">
@@ -138,7 +232,7 @@ export default function PaymentStatus({ buildings, summary }) {
           </div>
           <p className="font-label text-xs uppercase tracking-widest text-secondary font-bold opacity-70">현재 누적 기성 완료</p>
           <h3 className="text-3xl font-black text-secondary mt-2 font-headline">
-            {stats.buildingStats.reduce((acc, b) => acc + b.completedTargetHouseholds, 0).toLocaleString()} <span className="text-base font-bold">세대</span>
+            {buildingStats.reduce((acc, b) => acc + b.completedTargetHouseholds, 0).toLocaleString()} <span className="text-base font-bold">세대</span>
           </h3>
         </div>
         <div className="bg-success/5 border border-success/20 rounded-2xl p-6 relative overflow-hidden">
@@ -153,7 +247,6 @@ export default function PaymentStatus({ buildings, summary }) {
         </div>
       </div>
 
-      {/* 월별 기성 현황 */}
       <div className="bg-surface-container-lowest rounded-2xl p-6 shadow-sm border border-outline-variant/20">
         <div className="flex items-center gap-2 mb-6">
           <span className="material-symbols-outlined text-primary">calendar_month</span>
@@ -169,14 +262,14 @@ export default function PaymentStatus({ buildings, summary }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/10">
-              {stats.monthlyStats.map(m => (
+              {monthStats.map(m => (
                 <tr key={m.month} className="hover:bg-surface-container-low transition-colors">
                   <td className="py-4 px-4 font-headline font-bold text-lg text-primary">{m.month}</td>
                   <td className="py-4 px-4 font-body text-center font-bold">{m.households}세대</td>
                   <td className="py-4 px-4 font-headline font-black text-right text-success text-xl">{m.amount.toLocaleString()}원</td>
                 </tr>
               ))}
-              {stats.monthlyStats.length === 0 && (
+              {monthStats.length === 0 && (
                 <tr><td colSpan="3" className="py-12 text-center text-outline font-body">기성 조건(기준층 초과)에 부합하는 기록이 없습니다.</td></tr>
               )}
             </tbody>
@@ -191,8 +284,9 @@ export default function PaymentStatus({ buildings, summary }) {
           <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary">동별 기성 상세 (기준층 제외 실적)</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {stats.buildingStats.map(b => {
+          {buildingStats.map(b => {
             const progress = b.totalTargetHouseholds > 0 ? (b.completedTargetHouseholds / b.totalTargetHouseholds) * 100 : 0;
+            const monthRangeInfo = buildingMonthRanges.find(item => item.building === b.name);
             return (
               <div key={b.id} className="border border-outline-variant/30 rounded-xl p-5 space-y-4 hover:shadow-md transition-shadow">
                 <div className="flex justify-between items-start">
@@ -219,6 +313,55 @@ export default function PaymentStatus({ buildings, summary }) {
                     <span className="text-xs text-outline font-bold">기성 금액</span>
                     <span className="text-primary">{b.amount.toLocaleString()}원</span>
                   </div>
+                  {monthRangeInfo && (
+                    <div className="pt-3 border-t border-outline-variant/10">
+                      <p className="text-xs font-bold uppercase tracking-widest text-outline mb-2">월별 기성 층수</p>
+                      <div className="space-y-2 text-sm">
+                        {monthRangeInfo.monthRanges.map(item => {
+                          const ranges = item.phaseRanges || [];
+                          const flag = (() => {
+                            // 누락: 한 페이즈라도 '미정'인 경우
+                            if (ranges.some(r => r.range === '미정' || !r.range)) return '누락';
+                            // 중복: cleaning 모드에서 2차가 존재하고 같은 범위인 경우
+                            if (activeMode === 'cleaning' && ranges.length >= 2) {
+                              const a = ranges[0].range; const b = ranges[1].range;
+                              if (a && b && a === b && a !== '미정') return '중복';
+                            }
+                            return '정상';
+                          })();
+
+                          const flagStyle = (() => {
+                            if (flag === '정상') return { background: 'rgba(16,185,129,0.08)', color: '#059669', border: '1px solid rgba(16,185,129,0.18)' };
+                            if (flag === '누락') return { background: 'rgba(245,158,11,0.08)', color: '#b45309', border: '1px solid rgba(245,158,11,0.18)' };
+                            return { background: 'rgba(239,68,68,0.08)', color: '#dc2626', border: '1px solid rgba(239,68,68,0.18)' };
+                          })();
+
+                          return (
+                            <div key={item.month} className="flex items-center justify-between rounded-lg bg-surface-container p-3 text-on-surface">
+                              <div className="font-bold w-28">{item.month}</div>
+                              <div className="flex-1 flex gap-4 items-center">
+                                {ranges.map(rangeItem => (
+                                  <div key={rangeItem.phase} className="flex items-center gap-3">
+                                    <span className="inline-flex min-w-[40px] rounded-full bg-primary/10 text-primary px-3 py-1 text-[11px] font-bold">{rangeItem.phase}차</span>
+                                    <div>
+                                      <div className="font-bold">{rangeItem.range}</div>
+                                      <div className="text-sm text-success font-bold">{rangeItem.amount ? rangeItem.amount.toLocaleString() + '원' : '-'}</div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="text-right min-w-[110px]">
+                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full" style={flagStyle}>
+                                  <span style={{ width: 10, height: 10, borderRadius: 999, background: flag === '정상' ? '#10b981' : flag === '누락' ? '#f59e0b' : '#ef4444' }}></span>
+                                  <span className="text-xs font-bold">{flag}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 const CalendarView = ({ summary }) => {
   const [currentDate, setCurrentDate] = useState(dayjs());
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedDayDetail, setSelectedDayDetail] = useState(null);
   const [weatherCache, setWeatherCache] = useState({});
+  const [showDailyAmount, setShowDailyAmount] = useState(false);
+  const [monthlyAnalysis, setMonthlyAnalysis] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
 
   const startOfMonth = currentDate.startOf('month').startOf('week');
   const endOfMonth = currentDate.endOf('month').endOf('week');
@@ -23,8 +26,12 @@ const CalendarView = ({ summary }) => {
     const formattedDate = date.format('YYYY-MM-DD');
     const oiling = (summary.oiling || []).filter(r => r.date === formattedDate);
     const cleaning = (summary.cleaning || []).filter(r => r.date === formattedDate);
-    const lifting = (summary.lifting || []).filter(r => r.date === formattedDate);
-    return { oiling, cleaning, lifting };
+    const unloading = (summary.unloading || []).filter(r => r.date === formattedDate);
+    return { oiling, cleaning, unloading };
+  };
+
+  const getMonthTotalAmount = () => {
+    return monthlyAnalysis?.summary?.income || 0;
   };
 
   const handleDayClick = async (d) => {
@@ -50,6 +57,36 @@ const CalendarView = ({ summary }) => {
     return 'cloud';
   };
 
+  useEffect(() => {
+    const loadMonthlyAnalysis = async () => {
+      const month = currentDate.format('YYYY-MM');
+      try {
+        const res = await fetch(`${API_URL}/analysis/monthly?month=${month}`);
+        if (!res.ok) throw new Error('월별 정산 데이터를 로드할 수 없습니다.');
+        const data = await res.json();
+        setMonthlyAnalysis(data);
+        setAnalysisError(null);
+      } catch (err) {
+        setMonthlyAnalysis(null);
+        setAnalysisError(err.message);
+      }
+    };
+
+    loadMonthlyAnalysis();
+  }, [currentDate]);
+
+  const getDayAmount = (date) => {
+    if (!monthlyAnalysis) return 0;
+    const formattedDate = date.format('YYYY-MM-DD');
+    const oilingAmount = (monthlyAnalysis.oiling?.details || [])
+      .filter(r => r.date === formattedDate)
+      .reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : parseInt(r.amount) || 0), 0);
+    const cleaningAmount = (monthlyAnalysis.cleaning?.details || [])
+      .filter(r => r.date === formattedDate)
+      .reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : parseInt(r.amount) || 0), 0);
+    return oilingAmount + cleaningAmount;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -60,17 +97,25 @@ const CalendarView = ({ summary }) => {
       </div>
 
       {/* 헤더 탐색 */}
-      <div className="bg-surface-container-lowest rounded-lg p-4 shadow-sm border border-outline-variant/20 flex items-center justify-between">
-        <button onClick={() => setCurrentDate(currentDate.subtract(1, 'month'))} className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors">
-          <span className="material-symbols-outlined text-primary">chevron_left</span>
-        </button>
+      <div className="bg-surface-container-lowest rounded-lg p-4 shadow-sm border border-outline-variant/20 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
-          <span className="font-headline font-black text-2xl text-primary">{currentDate.format('YYYY년 MM월')}</span>
+          <button onClick={() => setCurrentDate(currentDate.subtract(1, 'month'))} className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors">
+            <span className="material-symbols-outlined text-primary">chevron_left</span>
+          </button>
+          <div>
+            <span className="font-headline font-black text-2xl text-primary">{currentDate.format('YYYY년 MM월')}</span>
+            <p className="text-on-surface-variant text-sm mt-1">월별 총 금액: ₩{getMonthTotalAmount().toLocaleString()}</p>
+          </div>
           <button onClick={() => setCurrentDate(dayjs())} className="font-label text-[10px] uppercase tracking-widest bg-primary/10 text-primary px-3 py-1.5 rounded hover:bg-primary/20 transition-colors">오늘</button>
         </div>
-        <button onClick={() => setCurrentDate(currentDate.add(1, 'month'))} className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors">
-          <span className="material-symbols-outlined text-primary">chevron_right</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setCurrentDate(currentDate.add(1, 'month'))} className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-surface-container transition-colors">
+            <span className="material-symbols-outlined text-primary">chevron_right</span>
+          </button>
+          <button onClick={() => setShowDailyAmount(prev => !prev)} className={`px-4 py-2 rounded-lg font-bold transition-colors ${showDailyAmount ? 'bg-primary text-white' : 'bg-surface-container text-on-surface hover:bg-surface-container-high'}`}>
+            {showDailyAmount ? '일일 금액 보기 ON' : '일일 금액 보기 OFF'}
+          </button>
+        </div>
       </div>
 
       {/* 달력 그리드 */}
@@ -88,7 +133,7 @@ const CalendarView = ({ summary }) => {
             const isToday = d.isSame(dayjs(), 'day');
             const isCurrentMonth = d.isSame(currentDate, 'month');
             const isSelected = selectedDay && d.isSame(selectedDay, 'day');
-            const hasRecords = records.oiling.length + records.cleaning.length + records.lifting.length > 0;
+            const hasRecords = records.oiling.length + records.cleaning.length + records.unloading.length > 0;
 
             return (
               <div
@@ -109,11 +154,6 @@ const CalendarView = ({ summary }) => {
                   {hasRecords && <span className="w-1.5 h-1.5 bg-secondary-container rounded-full"></span>}
                 </div>
                 <div className="space-y-0.5">
-                  {records.lifting.map((r, i) => (
-                    <div key={i} className="text-[9px] px-1.5 py-0.5 bg-error text-white rounded truncate font-label">
-                      {r.building_name} 인양
-                    </div>
-                  ))}
                   {records.oiling.length > 0 && (
                     <div className="text-[9px] px-1.5 py-0.5 bg-primary text-white rounded truncate font-label">
                       박리제칠 {records.oiling.length}건
@@ -122,6 +162,16 @@ const CalendarView = ({ summary }) => {
                   {records.cleaning.length > 0 && (
                     <div className="text-[9px] px-1.5 py-0.5 bg-secondary-container text-white rounded truncate font-label">
                       청소 {records.cleaning.length}건
+                    </div>
+                  )}
+                  {records.unloading.length > 0 && (
+                    <div className="text-[9px] px-1.5 py-0.5 bg-tertiary text-white rounded truncate font-label">
+                      하역 {records.unloading.length}건
+                    </div>
+                  )}
+                  {showDailyAmount && (
+                    <div className="mt-1 text-right text-[11px] font-bold text-emerald-700">
+                      ₩{getDayAmount(d).toLocaleString()}
                     </div>
                   )}
                 </div>
@@ -171,11 +221,11 @@ const CalendarView = ({ summary }) => {
           )}
 
           {/* 작업 기록 요약 */}
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-3 gap-3 mb-4">
             {[
-              { label: '인양', count: selectedDayDetail.lifting.length, color: 'text-error bg-error/10' },
               { label: '박리제칠', count: selectedDayDetail.oiling.length, color: 'text-primary bg-primary/10' },
               { label: '청소', count: selectedDayDetail.cleaning.length, color: 'text-success bg-success/10' },
+              { label: '하역', count: (selectedDayDetail.unloading || []).length, color: 'text-tertiary bg-tertiary/10' },
             ].map(item => (
               <div key={item.label} className={`rounded-lg p-4 ${item.color}`}>
                 <p className="font-label text-[9px] uppercase tracking-widest opacity-70">{item.label}</p>
@@ -185,18 +235,23 @@ const CalendarView = ({ summary }) => {
             ))}
           </div>
 
+          <div className="rounded-lg p-4 border border-outline-variant/20 bg-surface-container-lowest mb-4">
+            <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-2">선택된 날짜 총 금액</p>
+            <p className="font-headline font-black text-3xl text-emerald-700">₩{getDayAmount(selectedDay).toLocaleString()}</p>
+          </div>
+
           {/* 상세 목록 */}
-          {[...selectedDayDetail.lifting.map(r => ({ ...r, type: '인양' })),
-            ...selectedDayDetail.oiling.map(r => ({ ...r, type: '박리제칠' })),
-            ...selectedDayDetail.cleaning.map(r => ({ ...r, type: '청소' }))
+          {[...selectedDayDetail.oiling.map(r => ({ ...r, type: '박리제칠' })),
+            ...selectedDayDetail.cleaning.map(r => ({ ...r, type: '청소' })),
+            ...(selectedDayDetail.unloading || []).map(r => ({ ...r, type: '하역' }))
           ].map((r, i) => (
             <div key={i} className="flex items-center gap-3 py-2 border-b border-outline-variant/20 last:border-0">
-              <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${r.type === '청소' ? 'bg-success' : r.type === '박리제칠' ? 'bg-primary' : 'bg-error'}`}></span>
+              <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${r.type === '청소' ? 'bg-success' : r.type === '하역' ? 'bg-tertiary' : 'bg-primary'}`}></span>
               <span className="font-body text-sm text-on-surface">{r.building_name} {r.ho || ''} {r.floor ? `${r.floor}층` : ''} {r.type}</span>
-              {r.phase && <span className="font-label text-[9px] bg-surface-container px-2 py-0.5 rounded text-outline">{r.phase}차 공정 {r.progress}%</span>}
+              {r.phase && <span className="font-label text-[9px] bg-surface-container px-2 py-0.5 rounded text-outline">{r.phase === 9 ? '기타청소' : `${r.phase}차청소`}</span>}
             </div>
           ))}
-          {(selectedDayDetail.lifting.length + selectedDayDetail.oiling.length + selectedDayDetail.cleaning.length) === 0 && (
+          {(selectedDayDetail.oiling.length + selectedDayDetail.cleaning.length + (selectedDayDetail.unloading || []).length) === 0 && (
             <p className="text-center text-outline font-body py-4">이 날짜에는 기록된 작업이 없습니다.</p>
           )}
         </div>

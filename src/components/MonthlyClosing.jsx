@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = '/api';
 
 function MonthlyClosing({ siteId, token }) {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
@@ -71,13 +71,13 @@ function MonthlyClosing({ siteId, token }) {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold text-gray-800">월별 마감 (공수 통합조회)</h2>
         <div className="flex items-center space-x-4">
-          <input 
-            type="month" 
-            value={month} 
+          <input
+            type="month"
+            value={month}
             onChange={(e) => setMonth(e.target.value)}
             className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button 
+          <button
             onClick={handleExport}
             className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded shadow transition-colors"
           >
@@ -148,9 +148,9 @@ function MonthlyClosing({ siteId, token }) {
           </table>
         </div>
       )}
-      
+
       <div className="mt-4 text-sm text-gray-500 bg-yellow-50 p-3 rounded border border-yellow-200">
-        <strong>💡 공수(Man-days) 산정 기준 (현장 실무 적용):</strong> 
+        <strong>💡 공수(Man-days) 산정 기준 (현장 실무 적용):</strong>
         기본 공수(근무 시간 / 8.0) + 추가 공수(OT 및 야간 합산: 1시간 이상 +0.1 / 2시간 이상 +0.5 / 4시간 이상 +1.0)
         <br/>
         예시: 하루 10시간 근무 (기본 8 + OT 2) = 1.0 + 0.5 = 1.5 공수

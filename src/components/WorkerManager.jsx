@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 const ROLES = [
   { value: 'foreman',   label: '팀장',      icon: 'manage_accounts', color: 'text-primary   bg-primary/10' },
@@ -10,7 +10,7 @@ const ROLES = [
   { value: 'manager',  label: '현장관리자', icon: 'engineering',     color: 'text-success   bg-success/10' },
 ];
 
-const SPECIALTIES = ['박리제칠', '세대청소', '갱폼인양', '전기', '설비', '잡공', '기타'];
+const SPECIALTIES = ['박리제칠', '세대청소', '하역', '전기', '설비', '잡공', '기타'];
 
 const STATUSES = [
   { value: 'active',   label: '재직 중',  dot: 'bg-success' },

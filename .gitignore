@@ -29,3 +29,11 @@ npm-debug.log*
 temp.db
 *.db-wal
 *.db-shm
+
+# 수동 DB 백업 / 스냅샷 (정식 백업은 backups/ 폴더에서 관리)
+server/construction_backup_*.db
+server/clearing.db
+server/recovery_records.json
+
+# 백업 확장자 파일
+*.bak_*

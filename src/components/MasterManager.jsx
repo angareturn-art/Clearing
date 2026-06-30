@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
-const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteUpdate }) => {
+const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteUpdate, allTabs = [], primaryTabIds = [], onPrimaryTabsChange }) => {
   const [activeSubTab, setActiveSubTab] = useState('site'); // site, buildings, users
   const [selectedBuildingId, setSelectedBuildingId] = useState(buildings[0]?.id || '');
   const [editData, setEditData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [siteConfig, setSiteConfig] = useState({ site_address: '', start_date: '', end_date: '' });
   const [siteDetails, setSiteDetails] = useState({ name: '', primary_contractor: '', subcontractor: '' });
+  const [menuVisibility, setMenuVisibility] = useState({});
   
   // 사용자 관리 상태
   const [users, setUsers] = useState([]);
@@ -19,11 +21,82 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
     if (currentUser?.role === 'admin') fetchUsers();
   }, [currentUser]);
 
+  const buildMenuState = (config) => {
+    const visibility = {};
+    allTabs.forEach(tab => {
+      visibility[tab.id] = tab.id === 'settings' ? true : config?.[`menu_${tab.id}_enabled`] !== 'false';
+    });
+    return visibility;
+  };
+
+  const buildConfigPayload = (baseConfig, visibility) => {
+    const updatedSettings = { ...baseConfig };
+    Object.entries(visibility).forEach(([tabId, enabled]) => {
+      updatedSettings[`menu_${tabId}_enabled`] = enabled ? 'true' : 'false';
+    });
+    return updatedSettings;
+  };
+
+  const saveSiteConfigSettings = async (updatedSettings) => {
+    const res = await fetch(`${API_URL}/site-config`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Site-Id': currentSite?.id
+      },
+      body: JSON.stringify(updatedSettings)
+    });
+    if (res.ok) {
+      setSiteConfig(updatedSettings);
+      return true;
+    }
+    return false;
+  };
+
+  const saveMenuConfig = async (visibility) => {
+    setLoading(true);
+    try {
+      const payload = buildConfigPayload(siteConfig, visibility);
+      const ok = await saveSiteConfigSettings(payload);
+      if (ok) {
+        onRefresh();
+        return true;
+      }
+      alert('메뉴 설정 저장에 실패했습니다. 다시 시도해주세요.');
+      return false;
+    } catch (err) {
+      alert('메뉴 설정 저장 중 오류가 발생했습니다.');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleMenuVisibility = async (tabId) => {
+    const nextEnabled = !menuVisibility[tabId];
+    const nextVisibility = {
+      ...menuVisibility,
+      [tabId]: nextEnabled
+    };
+
+    setMenuVisibility(nextVisibility);
+    if (primaryTabIds.includes(tabId) && !nextEnabled) {
+      onPrimaryTabsChange(primaryTabIds.filter(id => id !== tabId));
+    }
+
+    if (activeSubTab === 'menu') {
+      await saveMenuConfig(nextVisibility);
+    }
+  };
+
   const fetchSiteConfig = async () => {
     try {
       const res = await fetch(`${API_URL}/site-config`, { headers: { 'X-Site-Id': currentSite?.id } });
       const data = await res.json();
-      if (data) setSiteConfig(data);
+      if (data) {
+        setSiteConfig(data);
+        setMenuVisibility(buildMenuState(data));
+      }
 
       if (currentSite) {
         const resS = await fetch(`${API_URL}/sites/${currentSite.id}`, {
@@ -96,13 +169,18 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
       });
 
       // 2. 글로벌 설정 저장
+      const updatedSettings = { ...siteConfig };
+      Object.entries(menuVisibility).forEach(([tabId, enabled]) => {
+        updatedSettings[`menu_${tabId}_enabled`] = enabled ? 'true' : 'false';
+      });
+
       const resS = await fetch(`${API_URL}/site-config`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'X-Site-Id': currentSite?.id
         },
-        body: JSON.stringify(siteConfig)
+        body: JSON.stringify(updatedSettings)
       });
 
       // 3. 현장 상세 정보 저장 (현장명, 원청사, 하청사 등)
@@ -123,6 +201,7 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
       if (resB.ok && resS.ok && resD.ok) {
         alert('기준정보가 저장되었습니다.');
         onSiteUpdate({ ...currentSite, ...siteDetails });
+        setSiteConfig(updatedSettings);
         fetchSiteConfig();
         onRefresh();
       } else {
@@ -135,9 +214,10 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
     <div className="space-y-8 animate-fade-in">
       <div className="flex items-center justify-between border-b border-outline-variant/20 pb-4">
         <h2 className="text-3xl font-black text-primary tracking-tight font-headline">기준정보 설정</h2>
-        <div className="flex bg-surface-container p-1 rounded-xl">
+        <div className="flex flex-wrap gap-1 bg-surface-container p-1 rounded-xl">
           <button onClick={() => setActiveSubTab('site')} className={`px-4 py-2 rounded-lg font-label text-[10px] font-bold uppercase tracking-widest transition-all ${activeSubTab === 'site' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-high'}`}>현장 정보</button>
           <button onClick={() => setActiveSubTab('buildings')} className={`px-4 py-2 rounded-lg font-label text-[10px] font-bold uppercase tracking-widest transition-all ${activeSubTab === 'buildings' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-high'}`}>동/호수 관리</button>
+          <button onClick={() => setActiveSubTab('menu')} className={`px-4 py-2 rounded-lg font-label text-[10px] font-bold uppercase tracking-widest transition-all ${activeSubTab === 'menu' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-high'}`}>주요 메뉴</button>
           {currentUser?.role === 'admin' && (
             <button onClick={() => setActiveSubTab('users')} className={`px-4 py-2 rounded-lg font-label text-[10px] font-bold uppercase tracking-widest transition-all ${activeSubTab === 'users' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-high'}`}>사용자 관리</button>
           )}
@@ -315,6 +395,80 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
             </section>
           </div>
         </div>
+      )}
+      {activeSubTab === 'menu' && (
+        <section className="bg-surface-container-lowest p-8 shadow-sm rounded-lg border border-outline-variant/10 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="material-symbols-outlined text-primary">tune</span>
+            <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary">주요 메뉴 설정</h3>
+          </div>
+          <p className="text-xs text-outline mb-6">상단 탭바와 모바일 하단에 표시할 메뉴를 선택하세요. <strong>5개 이하</strong> 권장</p>
+
+          <div className="mb-6">
+            <p className="text-xs text-outline mb-4">메뉴 사용 여부를 설정하세요. 비활성화된 메뉴는 앱 전체에서 숨겨집니다. <strong>기준정보 메뉴는 항상 표시됩니다.</strong></p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              {allTabs.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => {
+                const enabled = menuVisibility[tab.id] ?? true;
+                const isSettings = tab.id === 'settings';
+                return (
+                  <label key={tab.id} className="flex items-center justify-between p-4 rounded-xl border border-outline-variant/20 bg-surface-container gap-3">
+                    <div>
+                      <div className="font-label text-sm font-bold">{tab.label}</div>
+                      <div className="text-[10px] text-on-surface-variant">{tab.adminOnly ? '관리자 전용 메뉴' : '일반 메뉴'}</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      disabled={isSettings}
+                      onChange={() => handleToggleMenuVisibility(tab.id)}
+                      className="h-5 w-5 text-primary rounded"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {allTabs.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => {
+              const isActive = primaryTabIds.includes(tab.id);
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    const newIds = isActive
+                      ? primaryTabIds.filter(id => id !== tab.id)
+                      : [...primaryTabIds, tab.id];
+                    onPrimaryTabsChange(newIds);
+                  }}
+                  className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
+                    isActive
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-outline-variant/30 text-on-surface-variant hover:border-primary/40 hover:bg-surface-container'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-xl flex-shrink-0">{tab.icon}</span>
+                  <span className="font-label text-xs font-bold uppercase tracking-wide flex-1">{tab.label}</span>
+                  {isActive && <span className="material-symbols-outlined text-sm text-primary flex-shrink-0">check_circle</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1fr_auto] items-end">
+            <div className="flex items-center gap-2 text-xs text-outline">
+              <span className="material-symbols-outlined text-sm">info</span>
+              현재 <strong className="text-primary mx-1">{primaryTabIds.length}개</strong> 선택됨 · 선택 즉시 저장됩니다
+            </div>
+            <button
+              onClick={() => saveMenuConfig(menuVisibility)}
+              disabled={loading}
+              className="bg-primary text-white px-6 py-3 rounded-lg font-label font-bold text-xs uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? '저장 중...' : '메뉴 설정 저장'}
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

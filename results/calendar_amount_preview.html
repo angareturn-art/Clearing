@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>캘린더 금액보기 미리보기</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #111827; margin: 0; padding: 24px; }
+    .card { background: white; border-radius: 24px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08); max-width: 1200px; margin: 0 auto; padding: 28px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    .header-left { display: grid; gap: 8px; }
+    .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: .24em; color: #6b7280; }
+    .title { font-size: 32px; font-weight: 800; margin: 0; }
+    .subtitle { color: #4b5563; font-size: 14px; margin: 0; }
+    .status-chip { padding: 10px 16px; border-radius: 999px; border: 1px solid #d1d5db; background: #eef2ff; color: #4338ca; font-size: 12px; font-weight: 700; }
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+    .button { padding: 10px 18px; border-radius: 14px; border: none; cursor: pointer; font-size: 13px; font-weight: 700; }
+    .button-secondary { background: #eff6ff; color: #1d4ed8; }
+    .button-primary { background: #4338ca; color: white; }
+    .summary { display: inline-flex; align-items: center; gap: 8px; border-radius: 16px; padding: 14px 18px; background: #eef2ff; color: #1d4ed8; font-weight: 700; font-size: 14px; border: 1px solid #c7d2fe; }
+    .calendar { margin-top: 28px; border-radius: 20px; overflow: hidden; border: 1px solid #e5e7eb; }
+    .calendar-header { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: #f3f4f6; color: #6b7280; text-align: center; font-size: 12px; text-transform: uppercase; letter-spacing: .12em; padding: 14px 0; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+    .day-cell { border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; min-height: 120px; padding: 12px; background: white; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+    .day-cell:nth-child(7n) { border-right: none; }
+    .day-cell:hover { background: #eff6ff; transform: translateY(-1px); }
+    .day-cell.disabled { opacity: .36; background: #f9fafb; cursor: default; }
+    .day-number { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; font-weight: 700; color: #111827; }
+    .day-number.today { background: #4338ca; color: white; }
+    .record-chip { margin-top: 10px; display: block; padding: 6px 8px; border-radius: 12px; font-size: 11px; color: white; margin-bottom: 6px; }
+    .record-chip.oiling { background: #4338ca; }
+    .record-chip.cleaning { background: #16a34a; }
+    .record-chip.unloading { background: #0f766e; }
+    .amount { margin-top: 6px; font-size: 13px; font-weight: 700; color: #111827; }
+    .amount span { color: #065f46; }
+    .footer { margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px; }
+    .note { margin-top: 24px; padding: 18px; border-radius: 16px; background: #f8fafc; border: 1px solid #e5e7eb; color: #374151; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="header-left">
+        <div class="eyebrow">캘린더 금액보기 플랜</div>
+        <h1 class="title">작업 일정 캘린더</h1>
+        <p class="subtitle">월별 총액과 일별 금액을 한눈에 확인하는 캘린더 UI</p>
+      </div>
+      <div class="status-chip">미리보기 디자인</div>
+    </div>
+
+    <div class="toolbar">
+      <button class="button button-secondary">이전월</button>
+      <button class="button button-secondary">다음월</button>
+      <button class="button button-primary">일일 금액 보기 ON</button>
+      <div class="summary">2026년 06월 총 금액: ₩12,345,000</div>
+    </div>
+
+    <div class="calendar">
+      <div class="calendar-header">
+        <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+      </div>
+      <div class="calendar-grid">
+        <!-- 첫 주 비활성 날짜 -->
+        <div class="day-cell disabled"><div class="day-number">27</div></div>
+        <div class="day-cell disabled"><div class="day-number">28</div></div>
+        <div class="day-cell disabled"><div class="day-number">29</div></div>
+        <div class="day-cell disabled"><div class="day-number">30</div></div>
+        <div class="day-cell"><div class="day-number today">1</div><span class="record-chip oiling">박리제칠 2건</span><span class="amount"><span>₩320,000</span></span></div>
+        <div class="day-cell"><div class="day-number">2</div><span class="record-chip cleaning">청소 1건</span><span class="amount"><span>₩150,000</span></span></div>
+        <div class="day-cell"><div class="day-number">3</div><span class="record-chip unloading">하역 1건</span><span class="amount"><span>₩250,000</span></span></div>
+
+        <!-- 두 번째 주 -->
+        <div class="day-cell"><div class="day-number">4</div><span class="amount">₩0</span></div>
+        <div class="day-cell"><div class="day-number">5</div><span class="record-chip oiling">박리제칠 1건</span><span class="amount"><span>₩230,000</span></span></div>
+        <div class="day-cell"><div class="day-number">6</div><span class="record-chip cleaning">청소 2건</span><span class="amount"><span>₩320,000</span></span></div>
+        <div class="day-cell"><div class="day-number">7</div><span class="record-chip unloading">하역 1건</span><span class="amount"><span>₩210,000</span></span></div>
+        <div class="day-cell"><div class="day-number">8</div><span class="record-chip oiling">박리제칠 1건</span><span class="amount"><span>₩180,000</span></span></div>
+        <div class="day-cell"><div class="day-number">9</div><span class="record-chip cleaning">청소 1건</span><span class="amount"><span>₩140,000</span></span></div>
+        <div class="day-cell"><div class="day-number">10</div><span class="record-chip unloading">하역 1건</span><span class="amount"><span>₩270,000</span></span></div>
+
+        <!-- 더미 데이터 포함 -->
+        <div class="day-cell"><div class="day-number">11</div></div>
+        <div class="day-cell"><div class="day-number">12</div></div>
+        <div class="day-cell"><div class="day-number">13</div></div>
+        <div class="day-cell"><div class="day-number">14</div></div>
+        <div class="day-cell"><div class="day-number">15</div></div>
+        <div class="day-cell"><div class="day-number">16</div></div>
+        <div class="day-cell"><div class="day-number">17</div></div>
+
+        <div class="day-cell"><div class="day-number">18</div></div>
+        <div class="day-cell"><div class="day-number">19</div></div>
+        <div class="day-cell"><div class="day-number">20</div></div>
+        <div class="day-cell"><div class="day-number">21</div></div>
+        <div class="day-cell"><div class="day-number">22</div></div>
+        <div class="day-cell"><div class="day-number">23</div></div>
+        <div class="day-cell"><div class="day-number">24</div></div>
+
+        <div class="day-cell"><div class="day-number">25</div></div>
+        <div class="day-cell"><div class="day-number">26</div></div>
+        <div class="day-cell"><div class="day-number">27</div></div>
+        <div class="day-cell"><div class="day-number">28</div></div>
+        <div class="day-cell"><div class="day-number">29</div></div>
+        <div class="day-cell"><div class="day-number">30</div></div>
+        <div class="day-cell"><div class="day-number">1</div></div>
+      </div>
+    </div>
+
+    <div class="note">
+      <p><strong>이 미리보기는 설계 단계의 화면 예시입니다.</strong> 상단 버튼으로 일일 금액 표시를 켜고 끌 수 있으며, 월별 총액은 날짜 이동 시 자동 갱신됩니다.</p>
+    </div>
+  </div>
+</body>
+</html>

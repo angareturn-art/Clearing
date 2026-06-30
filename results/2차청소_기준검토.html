@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2차 청소 금액 적용 기준 검토</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Malgun Gothic', sans-serif; background: #f4f6f9; color: #222; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+
+    h1 { font-size: 24px; font-weight: 700; color: #1a2744; margin-bottom: 6px; }
+    .subtitle { font-size: 13px; color: #666; margin-bottom: 32px; }
+
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); padding: 28px 32px; margin-bottom: 28px; }
+    .card-title { font-size: 16px; font-weight: 700; color: #1a2744; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+    .badge-yellow { background: #fef9c3; color: #854d0e; }
+
+    .section-num { display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 50%; background: #1a2744; color: #fff; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+
+    /* 현재 로직 설명 */
+    .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 16px 0; }
+    .flow-box { background: #f1f5f9; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 14px 16px;
+      font-size: 13px; min-width: 140px; flex: 1; text-align: center; position: relative; }
+    .flow-box strong { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; }
+    .flow-box span { font-size: 14px; font-weight: 700; color: #0f172a; }
+    .flow-arrow { display: flex; align-items: center; padding: 0 6px; color: #94a3b8; font-size: 20px; }
+    .flow-box.red { border-color: #fca5a5; background: #fff5f5; }
+    .flow-box.red span { color: #b91c1c; }
+    .flow-box.green { border-color: #86efac; background: #f0fdf4; }
+    .flow-box.green span { color: #15803d; }
+
+    /* 코드 블록 */
+    pre { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 20px; font-size: 13px;
+      font-family: 'Consolas', monospace; overflow-x: auto; line-height: 1.7; margin: 12px 0; }
+    .hl-old { color: #f87171; text-decoration: line-through; }
+    .hl-new { color: #86efac; font-weight: 700; }
+    .hl-comment { color: #94a3b8; }
+    .hl-keyword { color: #c4b5fd; }
+    .hl-string { color: #fde68a; }
+
+    /* 시나리오 표 */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+    th { background: #1a2744; color: #fff; padding: 10px 14px; text-align: left; font-weight: 600; }
+    td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .old-val { color: #b91c1c; font-weight: 700; }
+    .new-val { color: #15803d; font-weight: 700; }
+    .neutral { color: #374151; font-weight: 600; }
+
+    /* 경고/안내 박스 */
+    .alert { border-radius: 8px; padding: 16px 18px; font-size: 13px; line-height: 1.7; margin: 16px 0; }
+    .alert-warn { background: #fffbeb; border-left: 4px solid #f59e0b; }
+    .alert-info { background: #eff6ff; border-left: 4px solid #3b82f6; }
+    .alert-success { background: #f0fdf4; border-left: 4px solid #22c55e; }
+    .alert strong { font-weight: 700; display: block; margin-bottom: 4px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+    ul.check { list-style: none; padding-left: 0; }
+    ul.check li { padding: 4px 0 4px 24px; font-size: 13px; position: relative; }
+    ul.check li::before { content: '✓'; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+    ul.check li.x::before { content: '✕'; color: #dc2626; }
+
+    .line-file { font-size: 11px; color: #94a3b8; margin-bottom: 4px; font-family: monospace; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>2차 청소 금액 적용 기준 검토</h1>
+  <p class="subtitle">작성일: 2026-06-29 &nbsp;·&nbsp; 대상 파일: <code>server/index.js</code> &nbsp;·&nbsp; 함수: <code>calculateMonthlyAnalysisData()</code></p>
+
+  <!-- 1. 현재 로직 요약 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="section-num">1</span>
+      현재 2차 청소 금액 반영 로직 <span class="badge badge-yellow">현재 적용 중</span>
+    </div>
+
+    <p style="font-size:13px; color:#374151; line-height:1.8; margin-bottom:16px;">
+      월별 정산에서 세대 청소(1차·2차) 금액은 <strong>청소일(<code>date</code>) 기준</strong>으로 해당 월에 귀속됩니다.
+      2차 청소의 경우 <strong>서명(confirmed=1)</strong>이 완료된 세대 수가 해당 층 전체 세대와 일치해야 청구 금액이 발생합니다.
+    </p>
+
+    <div class="flow">
+      <div class="flow-box">
+        <strong>청소 완료 기록</strong>
+        <span>cleaning_records</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">
+        <strong>월 필터 기준</strong>
+        <span style="font-size:12px; color:#0369a1;">strftime('%Y-%m', c.<strong>date</strong>)</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box">
+        <strong>2차 청소 조건</strong>
+        <span style="font-size:12px;">confirmed=1<br>세대 전체 서명</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-box green">
+        <strong>청구 금액 발생</strong>
+        <span>층 세대수 × 단가</span>
+      </div>
+    </div>
+
+    <div class="line-file">server/index.js · calculateMonthlyAnalysisData() · 라인 1318</div>
+    <pre><span class="hl-comment">// ── 세대청소 쿼리 (현재)</span>
+<span class="hl-keyword">let</span> cleaningWhere = <span class="hl-string">`strftime('%Y-%m', c.date) = ?`</span>;  <span class="hl-comment">// &lt;-- 청소일 기준</span></pre>
+
+    <div class="alert alert-warn">
+      <strong>⚠ 현재 로직의 핵심 제약</strong>
+      청소일(<code>c.date</code>)이 6월이면, 해당 레코드는 <strong>6월 정산 쿼리에만 포함</strong>됩니다.
+      7월에 서명이 완료(confirmed=1)되어도 7월 조회 시 해당 레코드가 쿼리에서 제외되어 <strong>청구 금액이 반영되지 않습니다.</strong>
+    </div>
+  </div>
+
+  <!-- 2. 문제 시나리오 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="section-num">2</span>
+      문제 시나리오 <span class="badge badge-red">버그 확인</span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>항목</th>
+          <th>날짜</th>
+          <th>현재 반영 결과</th>
+          <th>올바른 반영 결과</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>2차 청소 완료 (date)</td>
+          <td class="neutral">2026-06-29 (6월)</td>
+          <td class="old-val">6월에 레코드 포함</td>
+          <td class="new-val">쿼리에서 유지</td>
+        </tr>
+        <tr>
+          <td>본청 서명 완료 (sign_date)</td>
+          <td class="neutral">2026-07-02 (7월)</td>
+          <td class="old-val">7월 조회 시 누락<br>(date가 6월이라 제외)</td>
+          <td class="new-val">7월에 청구 반영<br>(sign_date 기준)</td>
+        </tr>
+        <tr>
+          <td>6월 정산 조회 결과</td>
+          <td>—</td>
+          <td class="old-val">confirmed=0 → 청구 안 됨<br>(청소일은 6월이지만 서명 전)</td>
+          <td class="new-val">포함 안 됨<br>(sign_date 기준이므로 제외)</td>
+        </tr>
+        <tr>
+          <td>7월 정산 조회 결과</td>
+          <td>—</td>
+          <td class="old-val">레코드 누락 → 청구 누락</td>
+          <td class="new-val">서명 완료 → 정상 청구</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="two-col" style="margin-top:16px;">
+      <div class="alert alert-warn" style="margin:0;">
+        <strong>현재 발생하는 문제</strong>
+        6월 29일에 청소가 완료되고 7월 2일에 서명이 이루어지면, 6월 정산에는 미서명(confirmed=0)이라 금액이 없고, 7월 정산에는 청소일이 6월이라 아예 포함되지 않아 <strong>영구적으로 청구 누락</strong>이 발생합니다.
+      </div>
+      <div class="alert alert-success" style="margin:0;">
+        <strong>개선 후 동작</strong>
+        2차 청소는 <strong>서명일(sign_date)</strong>이 해당 월이면 그 월에 귀속됩니다. 청소일이 전달이어도 서명이 이번 달에 완료되었다면 이번 달 청구에 포함됩니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 개선 방안 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="section-num">3</span>
+      개선 방안 (서명일 기준 월 귀속) <span class="badge badge-blue">코드 변경 필요</span>
+    </div>
+
+    <p style="font-size:13px; color:#374151; margin-bottom:14px; line-height:1.7;">
+      <strong>원칙:</strong> 2차 청소 레코드의 월 귀속 기준을 아래와 같이 변경합니다.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>구분</th><th>기존 기준</th><th>변경 기준</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1차 청소 (phase=1)</td>
+          <td class="neutral">청소일 (date)</td>
+          <td class="new-val">청소일 (date) — 변경 없음</td>
+        </tr>
+        <tr>
+          <td>2차 청소 서명 완료 (phase=2, confirmed=1)</td>
+          <td class="old-val">청소일 (date)</td>
+          <td class="new-val">서명일 (sign_date)</td>
+        </tr>
+        <tr>
+          <td>2차 청소 미서명 (phase=2, confirmed=0)</td>
+          <td class="neutral">청소일 (date)</td>
+          <td class="neutral">청소일 (date) — 서명 전 임시 표시용</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="line-file" style="margin-top:20px;">변경 1: 당월 청소 레코드 쿼리 WHERE 절 · server/index.js · 라인 1318</div>
+    <pre><span class="hl-comment">// ─ 이전 (청소일 기준)</span>
+<span class="hl-keyword">let</span> cleaningWhere = <span class="hl-string hl-old">`strftime('%Y-%m', c.date) = ?`</span>;
+
+<span class="hl-comment">// ─ 변경 후 (2차 청소 서명 완료 시 서명일 기준)</span>
+<span class="hl-keyword">let</span> cleaningWhere = <span class="hl-string hl-new">`strftime('%Y-%m', CASE WHEN c.phase=2 AND c.confirmed=1 AND c.sign_date IS NOT NULL THEN c.sign_date ELSE c.date END) = ?`</span>;</pre>
+
+    <div class="line-file">변경 2: 이전 월 완료 집합(prevCompleteSet) 쿼리 · server/index.js · 라인 1336-1340</div>
+    <pre><span class="hl-comment">// ─ 이전 (청소일 기준으로만 이전 월 판별)</span>
+<span class="hl-keyword">const</span> prevCleaningRows = db.prepare(<span class="hl-string hl-old">`
+  SELECT c.building_id, c.floor, c.phase, c.house_id, c.date, c.confirmed
+  FROM cleaning_records c
+  WHERE c.site_id=? AND c.date >= ? AND c.date < ? AND c.floor > 0
+`</span>).all(siteId, CONTRACT_START_DATE, monthStart);
+
+<span class="hl-comment">// ─ 변경 후 (2차 청소는 서명일 기준으로 이전 월 판별)</span>
+<span class="hl-keyword">const</span> prevCleaningRows = db.prepare(<span class="hl-string hl-new">`
+  SELECT c.building_id, c.floor, c.phase, c.house_id, c.date, c.confirmed, c.sign_date
+  FROM cleaning_records c
+  WHERE c.site_id=? AND c.floor > 0
+    AND (
+      (c.phase != 2 AND c.date >= ? AND c.date < ?)
+      OR (c.phase = 2 AND c.confirmed=1 AND c.sign_date IS NOT NULL AND c.sign_date >= ? AND c.sign_date < ?)
+      OR (c.phase = 2 AND c.confirmed=1 AND c.sign_date IS NULL AND c.date >= ? AND c.date < ?)
+    )
+`</span>).all(siteId, CONTRACT_START_DATE, monthStart, CONTRACT_START_DATE, monthStart, CONTRACT_START_DATE, monthStart);</pre>
+  </div>
+
+  <!-- 4. 적용 후 동작 검증 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="section-num">4</span>
+      적용 후 동작 검증
+    </div>
+    <table>
+      <thead>
+        <tr><th>시나리오</th><th>청소일</th><th>서명일</th><th>6월 조회</th><th>7월 조회</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>정상 (같은 달)</td>
+          <td>6월 15일</td>
+          <td>6월 20일</td>
+          <td class="new-val">✓ 청구</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>월말 청소 → 익월 서명</td>
+          <td>6월 29일</td>
+          <td>7월 2일</td>
+          <td style="color:#6b7280;">포함 안 됨</td>
+          <td class="new-val">✓ 청구</td>
+        </tr>
+        <tr>
+          <td>미서명 상태 (진행 중)</td>
+          <td>6월 29일</td>
+          <td>(없음)</td>
+          <td style="color:#6b7280;">표시됨<br>(금액 없음)</td>
+          <td style="color:#6b7280;">서명 후 반영</td>
+        </tr>
+        <tr>
+          <td>1차 청소 (변경 없음)</td>
+          <td>6월 10일</td>
+          <td>N/A</td>
+          <td class="new-val">✓ 청구</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 5. 영향 범위 -->
+  <div class="card">
+    <div class="card-title">
+      <span class="section-num">5</span>
+      영향 범위 및 주의사항
+    </div>
+    <div class="two-col">
+      <div>
+        <p style="font-size:13px; font-weight:700; margin-bottom:10px; color:#166534;">변경 후 달라지는 것</p>
+        <ul class="check">
+          <li>2차 청소 청구 월 = 서명 완료월로 정확하게 반영</li>
+          <li>월말 청소 → 익월 서명 케이스 더이상 누락 없음</li>
+          <li>이전 월 중복 청구 방지 로직(prevCompleteSet)도 서명일 기준으로 일관성 유지</li>
+        </ul>
+      </div>
+      <div>
+        <p style="font-size:13px; font-weight:700; margin-bottom:10px; color:#b45309;">주의사항</p>
+        <ul class="check">
+          <li class="x">기존 데이터 중 sign_date가 NULL인 레코드는 date 기준 유지 (호환 처리됨)</li>
+          <li class="x">1차 청소는 변경 없음 — date 기준 유지</li>
+          <li class="x">변경 후 처음 조회 시 기존 정산과 금액 차이 발생 가능 (서명일이 다른 달인 경우)</li>
+        </ul>
+      </div>
+    </div>
+    <div class="alert alert-info" style="margin-top:16px;">
+      <strong>📋 레거시 데이터 호환</strong>
+      <code>sign_date</code> 컬럼은 2026년 마이그레이션으로 추가되었습니다. 마이그레이션 이전 레코드의 경우
+      <code>sign_date IS NULL</code>이 될 수 있으며, 이 경우 <code>ELSE c.date</code>로 폴백(fallback) 처리됩니다.
+    </div>
+  </div>
+
+  <div style="text-align:center; font-size:11px; color:#94a3b8; margin-top:24px;">
+    생성: Clearing 관리 시스템 · 검토일 2026-06-29
+  </div>
+</div>
+</body>
+</html>

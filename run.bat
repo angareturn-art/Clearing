@@ -1,41 +1,33 @@
 @echo off
 chcp 65001 > nul
-setlocal enabledelayedexpansion
 
-title 건설 현장 관리 시스템 (Clearing)
+title Clearing - Start All
 
-echo.
-echo ====================================================
-echo  건설 현장 관리 시스템 (Clearing) - 전체 실행
-echo ====================================================
-echo.
-echo 백엔드 서버 (포트 5000) 실행 중...
-echo 프론트엔드 (포트 5173) 실행 중...
-echo.
+cd /d %~dp0
 
-REM 백엔드 서버 시작 (새 창)
-start "백엔드 서버 (포트 5000)" cmd /k "cd /d %~dp0 && call run-backend.bat"
-
-REM 1초 대기 (서버 시작 완료 대기)
-timeout /t 1 /nobreak > nul
-
-REM 프론트엔드 시작 (새 창)
-start "프론트엔드 (포트 5173)" cmd /k "cd /d %~dp0 && call run-frontend.bat"
+set LOCAL_IP=
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "IPv4"') do set _raw=%%a
+for /f "tokens=1" %%b in ("%_raw%") do set LOCAL_IP=%%b
 
 echo.
-echo ====================================================
-echo  실행 완료!
-echo ====================================================
+echo ================================================
+echo   Clearing - Backend + Frontend Start
+echo ================================================
 echo.
-echo [백엔드 서버]
-echo - 주소: http://localhost:5000
-echo - 상태: 새 창에서 실행 중
+
+start "Backend (5000)" cmd /k "cd /d %~dp0 && call run-backend.bat"
+timeout /t 2 /nobreak > nul
+start "Frontend (3000)" cmd /k "cd /d %~dp0 && call run-frontend.bat"
+
 echo.
-echo [프론트엔드]
-echo - 주소: http://localhost:3000 (개발 서버)
-echo - 상태: 새 창에서 실행 중
+echo  [PC]     http://localhost:3000
 echo.
-echo  팁: 두 터미널 창이 자동으로 열립니다.
-echo  종료하려면 각 창을 닫으세요.
+if defined LOCAL_IP (
+    echo  [Mobile] http://%LOCAL_IP%:3000
+) else (
+    echo  [Mobile] Check IPv4 address in ipconfig, then add :3000
+)
+echo.
+echo  Close each window to stop servers.
 echo.
 pause

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ko';
 import ElevationView from './components/ElevationView';
@@ -15,13 +15,18 @@ import SiteSelector from './components/SiteSelector';
 import AdvancedElevationView from './components/AdvancedElevationView';
 import SyncManager from './components/SyncManager';
 import MonthlyClosing from './components/MonthlyClosing';
-import MonthlyAnalysis from './components/MonthlyAnalysis';
+import MonthlyAnalysis2 from './components/MonthlyAnalysis2';
 import RevenueProjection from './components/RevenueProjection';
+import MatrixStatusView from './components/MatrixStatusView';
+import MatrixStatusView2 from './components/MatrixStatusView2';
+import CleaningStatusExport from './components/CleaningStatusExport';
+import CleaningSignApproval from './components/CleaningSignApproval';
+import UnifiedMatrixView from './components/UnifiedMatrixView';
 
 
 dayjs.locale('ko');
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
 
 const parseFloor = (f) => {
   if (typeof f === 'number') return f;
@@ -35,22 +40,35 @@ const parseFloor = (f) => {
 };
 
 // ── 화면 탭 구성 (메뉴 버튼 목록) ──
-const TABS = [
-  { id: 'dashboard',  label: '대시보드',  icon: 'dashboard' },
-  { id: 'elevation',  label: '배치도',    icon: 'grid_view' },
-  { id: 'visual_blueprint', label: '시각적 현황', icon: 'visibility' },
-  { id: 'calendar',   label: '캘린더',    icon: 'calendar_month' },
-  { id: 'records',    label: '기록',      icon: 'description' },
-  { id: 'cost',       label: '비용',      icon: 'payments' },
-  { id: 'personnel',  label: '인원',      icon: 'badge' },
-  { id: 'workers',    label: '작업자',    icon: 'groups' },
-  { id: 'payment_status', label: '기성 현황', icon: 'payments' },
-  { id: 'closing',    label: '월별 마감', icon: 'price_check' },
-  { id: 'monthly_analysis', label: '월별 정산', icon: 'analytics' },
-  { id: 'projection', label: '예상 수입', icon: 'trending_up' },
-  { id: 'emergency',  label: '비상연락',  icon: 'emergency' },
-  { id: 'settings',   label: '기준정보',  icon: 'database' },
-  { id: 'sync',       label: '클라우드 동기화', icon: 'cloud_sync', adminOnly: true },
+const ALL_TABS = [
+  { id: 'dashboard',        label: '대시보드',        icon: 'dashboard' },
+  { id: 'elevation',        label: '배치도',          icon: 'grid_view' },
+  { id: 'unified',          label: '통합 현황',       icon: 'view_comfy_alt' },
+  { id: 'matrix',           label: '통합 매트릭스',   icon: 'view_comfy' },
+  { id: 'matrix2',          label: '매트릭스2',       icon: 'grid_on' },
+  { id: 'records',          label: '기록',            icon: 'description' },
+  { id: 'calendar',         label: '캘린더',          icon: 'calendar_month' },
+  { id: 'visual_blueprint', label: '시각적 현황',     icon: 'visibility' },
+  { id: 'cost',             label: '비용',            icon: 'payments' },
+  { id: 'personnel',        label: '인원',            icon: 'badge' },
+  { id: 'workers',          label: '작업자',          icon: 'groups' },
+  { id: 'payment_status',   label: '기성 현황',       icon: 'payments' },
+  { id: 'closing',          label: '월별 마감',       icon: 'price_check' },
+  { id: 'monthly_analysis2', label: '월별정산',        icon: 'analytics' },
+  { id: 'sign_approval',     label: '본청 서명',       icon: 'draw' },
+  { id: 'cleaning_export',   label: '청소현황 출력',   icon: 'file_download' },
+  { id: 'projection',        label: '예상 수입',        icon: 'trending_up' },
+  { id: 'emergency',        label: '비상연락',        icon: 'emergency' },
+  { id: 'settings',         label: '기준정보',        icon: 'database' },
+  { id: 'sync',             label: '클라우드 동기화', icon: 'cloud_sync', adminOnly: true },
+];
+
+// ── 사이드바 네비게이션 그룹 ──
+const NAV_GROUPS = [
+  { label: '현황', tabIds: ['dashboard', 'elevation', 'visual_blueprint', 'unified', 'matrix', 'matrix2'] },
+  { label: '공정 기록', tabIds: ['records', 'calendar', 'sign_approval', 'cleaning_export'] },
+  { label: '정산', tabIds: ['monthly_analysis2', 'cost', 'payment_status', 'closing', 'projection'] },
+  { label: '관리', tabIds: ['personnel', 'workers', 'emergency', 'settings', 'sync'] },
 ];
 
 
@@ -68,20 +86,37 @@ function App() {
   });
   const [viewMode, setViewMode] = useState('total');         // 배치도 보기 모드 (통합/기름칠/청소)
   const [buildings, setBuildings] = useState([]);             // 건물(동) 전체 정보
-  const [summary, setSummary] = useState({ oiling: [], cleaning: [], lifting: [] }); // 각 공정별 집계 요약
+  const [summary, setSummary] = useState({ oiling: [], cleaning: [], unloading: [] }); // 각 공정별 집계 요약
   const [records, setRecords] = useState([]);                 // 상세 작업 기록 리스트
   const [filterDate, setFilterDate] = useState(dayjs().format('YYYY-MM-DD')); // 조회 날짜 필터
   const [filterBuilding, setFilterBuilding] = useState('');   // 조회 건물 필터
+  const [filterMode, setFilterMode] = useState('date');       // 조회 모드: 'date' | 'building'
   const [showModal, setShowModal] = useState(false);          // 기록 입력창(모달) 표시 여부
+const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sidebar_open') === 'true');
+  const [primaryTabIds, setPrimaryTabIds] = useState(() => {
+    const stored = localStorage.getItem('primary_tabs');
+    return stored ? JSON.parse(stored) : ['dashboard', 'elevation', 'matrix', 'records', 'calendar'];
+  });
+  const handlePrimaryTabsChange = (ids) => {
+    setPrimaryTabIds(ids);
+    localStorage.setItem('primary_tabs', JSON.stringify(ids));
+  };
   const [modalType, setModalType] = useState('cleaning');    // 입력하려는 기록 종류 (청소/기름칠/인양)
   const [sessionTimer, setSessionTimer] = useState(null);     // 자동 로그아웃을 위한 타이머
   const [siteConfig, setSiteConfig] = useState(null);         // 현장 공통 설정 (주소 등)
-  
+  const [tabVisibility, setTabVisibility] = useState(() => ALL_TABS.reduce((acc, tab) => ({
+    ...acc,
+    [tab.id]: true
+  }), {}));
+
+  const visibleTabs = ALL_TABS.filter(t => tabVisibility[t.id] && (!t.adminOnly || currentUser?.role === 'admin'));
+  const visiblePrimaryTabs = ALL_TABS.filter(t => primaryTabIds.includes(t.id) && tabVisibility[t.id] && (!t.adminOnly || currentUser?.role === 'admin'));
+
   // 입력창에 표시할 데이터 초기값
   const [formData, setFormData] = useState({
     record_id: null, building_id: '', house_id: '', house_ids: [],
     date: dayjs().format('YYYY-MM-DD'), time: dayjs().format('HH:mm'),
-    operator: '', phase: 1, progress: 50, remarks: '', floor: '', floors: []
+    operator: '', phase: 1, progress: 100, remarks: '', floor: '', floors: []
   });
 
   // 세션 타임아웃 (8시간)
@@ -110,7 +145,7 @@ function App() {
 
   useEffect(() => {
     if (activeTab === 'records') fetchRecords();
-  }, [activeTab, filterDate, filterBuilding, modalType]);
+  }, [activeTab, filterDate, filterBuilding, filterMode, modalType]);
 
   const fetchWithSite = async (url, options = {}) => {
     if (!currentSite) return null;
@@ -152,7 +187,7 @@ function App() {
       const res = await fetchWithSite(`${API_URL}/status/summary`);
       if (!res) return;
       const data = await res.json();
-      setSummary(data || { oiling: [], cleaning: [], lifting: [] });
+      setSummary(data || { oiling: [], cleaning: [], unloading: [] });
     } catch (err) { console.error('요약 데이터 로드 실패:', err); }
   };
 
@@ -162,12 +197,26 @@ function App() {
       if (!res) return;
       const data = await res.json();
       setSiteConfig(data);
+      setTabVisibility(ALL_TABS.reduce((acc, tab) => ({
+        ...acc,
+        [tab.id]: tab.id === 'settings' ? true : data?.[`menu_${tab.id}_enabled`] !== 'false'
+      }), {}));
+      if (activeTab && data?.[`menu_${activeTab}_enabled`] === 'false' && activeTab !== 'settings') {
+        setActiveTab('settings');
+      }
     } catch (err) { console.error('현장 설정 로드 실패:', err); }
   };
 
   const fetchRecords = async () => {
     try {
-      const params = new URLSearchParams({ date: filterDate, buildingId: filterBuilding });
+      const params = new URLSearchParams();
+      if (filterMode === 'date') {
+        // 일자별 모드: 해당 날짜의 기록만 조회
+        params.set('date', filterDate);
+      } else {
+        // 동별 모드: 선택한 건물의 전체 기록 날짜 내림차순
+        if (filterBuilding) params.set('buildingId', filterBuilding);
+      }
       const res = await fetchWithSite(`${API_URL}/records/${modalType}?${params}`);
       if (!res) return;
       const data = await res.json();
@@ -176,10 +225,14 @@ function App() {
   };
   const handleCellClick = (data) => {
     let floorInt = parseFloor(data.floor);
-    const type = viewMode === 'oiling' ? 'oiling' : 'cleaning';
+    const type = viewMode === 'oiling' ? 'oiling' : viewMode === 'unloading' ? 'unloading' : 'cleaning';
     let existingRecord = null;
     if (type === 'oiling') {
       existingRecord = summary.oiling?.find(r => r.building_id === data.building_id && r.floor === floorInt);
+    } else if (type === 'unloading') {
+      existingRecord = summary.unloading
+        ?.filter(r => r.house_id === data.house_id && r.floor === floorInt)
+        .sort((a, b) => b.phase - a.phase)[0];
     } else {
       existingRecord = summary.cleaning
         ?.filter(r => r.house_id === data.house_id && r.floor === floorInt)
@@ -199,7 +252,7 @@ function App() {
         time: existingRecord.time || dayjs().format('HH:mm'),
         operator: existingRecord.operator || '',
         phase: existingRecord.phase || 1,
-        progress: existingRecord.progress || 50,
+        progress: 100,
         remarks: existingRecord.remarks || ''
       });
     } else {
@@ -233,15 +286,15 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, house_id: formData.house_ids?.[0], floor: pFloor })
       });
-    } else if (modalType === 'cleaning') {
+    } else if (modalType === 'cleaning' || modalType === 'unloading') {
       const targetHouses = formData.house_ids?.length > 0 ? formData.house_ids : [formData.house_id];
       const targetFloors = formData.floors?.length > 0 ? formData.floors : [formData.floor];
-      
+
       if (!targetHouses[0] || !targetFloors[0]) {
         alert('호수와 층수를 각각 1개 이상 선택해주세요.');
         return;
       }
-      const promises = targetHouses.flatMap(hId => 
+      const promises = targetHouses.flatMap(hId =>
         targetFloors.map(fStr => {
           let pFloor = parseFloor(fStr);
           return fetch(`${API_URL}/records/${modalType}`, {
@@ -314,7 +367,7 @@ function App() {
       time: r.time || dayjs().format('HH:mm'),
       operator: r.operator || '',
       phase: r.phase || 1,
-      progress: r.progress || 50,
+      progress: 100,
       remarks: r.remarks || r.memo || ''
     });
     // modalType is already correct since we are currently viewing this type's table
@@ -345,9 +398,85 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // ── 사이드바 공통 렌더 (데스크탑 + 모바일 드로어 공유) ──
+  const SidebarContent = ({ onTabClick }) => (
+    <>
+      {/* 브랜드 */}
+      <div className="px-5 py-5 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-secondary rounded-lg flex items-center justify-center flex-shrink-0">
+            <span className="material-symbols-outlined text-white text-sm">architecture</span>
+          </div>
+          <div>
+            <div className="text-white font-black text-xs tracking-tighter uppercase leading-tight font-headline">Blueprint</div>
+            <div className="text-white font-black text-xs tracking-tighter uppercase leading-tight font-headline">Authority</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 현장 정보 */}
+      {currentSite && (
+        <div className="px-5 py-3 border-b border-white/10 flex-shrink-0">
+          <div className="text-white/40 text-[8px] uppercase tracking-widest mb-0.5 font-label">현재 현장</div>
+          <div className="text-white text-xs font-bold truncate">{currentSite.name}</div>
+          {currentSite.subcontractor && <div className="text-white/50 text-[10px] truncate">{currentSite.subcontractor}</div>}
+          <button
+            onClick={() => { setCurrentSite(null); localStorage.removeItem('ba_current_site'); }}
+            className="text-white/30 hover:text-white/60 text-[9px] uppercase tracking-widest mt-1 transition-colors font-label"
+          >현장 변경</button>
+        </div>
+      )}
+
+      {/* 네비게이션 */}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 sidebar-scroll">
+        {NAV_GROUPS.map(group => {
+          const groupTabs = group.tabIds
+            .map(id => ALL_TABS.find(t => t.id === id))
+            .filter(t => t && tabVisibility[t.id] !== false && (!t.adminOnly || currentUser?.role === 'admin'));
+          if (groupTabs.length === 0) return null;
+          return (
+            <div key={group.label} className="mb-4">
+              <div className="text-white/30 text-[8px] uppercase tracking-[0.2em] px-2 mb-1 font-label">{group.label}</div>
+              {groupTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => onTabClick(tab.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left mb-0.5 transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-secondary text-white shadow-sm'
+                      : 'text-white/60 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px] flex-shrink-0">{tab.icon}</span>
+                  <span className="text-[11px] font-semibold font-label">{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+
+      {/* 하단 사용자 */}
+      <div className="px-4 py-4 border-t border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-secondary-container rounded-full flex items-center justify-center text-white text-xs font-black font-headline flex-shrink-0">
+            {currentUser.name?.[0]}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-white text-[11px] font-bold truncate">{currentUser.name}</div>
+            <div className="text-white/40 text-[9px] uppercase font-label">{currentUser.role}</div>
+          </div>
+          <button onClick={handleLogout} className="text-white/30 hover:text-white/70 transition-colors" title="로그아웃">
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <>
-      {/* ── 현장 선택 레이어 (로그인 후 현장 미선택 시) ── */}
+      {/* ── 현장 선택 레이어 ── */}
       {currentUser && !currentSite && (
         <SiteSelector onSelect={(site) => {
           setCurrentSite(site);
@@ -355,63 +484,46 @@ function App() {
         }} />
       )}
 
-      {/* 상단 헤더 */}
-      <header className="bg-surface-container-highest transition-colors duration-150 ease-in-out flex justify-between items-center w-full px-4 md:px-6 h-16 sticky top-0 z-50 border-b border-outline-variant/20">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-sm">architecture</span>
+      <div className="flex h-screen overflow-hidden bg-[#f4f6f8]">
+
+        {/* ── 데스크탑 고정 사이드바 ── */}
+        <aside className="hidden md:flex flex-col w-56 flex-shrink-0 bg-primary h-screen sticky top-0 z-40">
+          <SidebarContent onTabClick={(id) => setActiveTab(id)} />
+        </aside>
+
+        {/* ── 메인 영역 ── */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+          {/* 서브헤더 */}
+          <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 flex items-center justify-between flex-shrink-0 z-30">
+            <div className="flex items-center gap-3">
+              {/* 모바일 햄버거 */}
+              <button
+                className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <span className="material-symbols-outlined text-gray-500 text-xl">menu</span>
+              </button>
+              <span className="text-sm font-label font-bold text-gray-400 hidden sm:block">
+                {dayjs().format('YYYY년 MM월 DD일 dddd')}
+              </span>
             </div>
-            <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline hidden sm:block">The Blueprint Authority</h1>
-            <h1 className="text-base font-black text-primary tracking-tighter uppercase font-headline sm:hidden">TBA</h1>
+            <div className="flex items-center gap-2">
+              {currentSite && (
+                <button
+                  onClick={() => { setCurrentSite(null); localStorage.removeItem('ba_current_site'); }}
+                  className="flex items-center gap-1.5 text-xs font-label font-bold text-primary hover:text-secondary px-3 py-1.5 rounded-lg hover:bg-primary/5 border border-primary/20 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-sm">apartment</span>
+                  <span className="truncate max-w-[180px]">{currentSite.name}</span>
+                  <span className="material-symbols-outlined text-xs opacity-50">swap_horiz</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {currentSite && (
-            <div className="hidden lg:flex items-center gap-2 bg-surface-container px-3 py-1.5 rounded-lg border border-outline-variant/20 group cursor-pointer" onClick={() => { setCurrentSite(null); localStorage.removeItem('ba_current_site'); }}>
-              <span className="material-symbols-outlined text-primary text-xs">apartment</span>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-label font-bold text-primary truncate max-w-[150px]">{currentSite.name}</span>
-                {currentSite.subcontractor && (
-                  <>
-                    <span className="w-[1px] h-3 bg-outline-variant/30"></span>
-                    <span className="text-[10px] font-label font-bold text-on-surface-variant truncate max-w-[100px]">{currentSite.subcontractor}</span>
-                  </>
-                )}
-              </div>
-              <span className="material-symbols-outlined text-[10px] text-outline group-hover:text-primary transition-colors ml-1">sync_alt</span>
-            </div>
-          )}
-        </div>
-
-        {/* PC 네비게이션 */}
-        <nav className="hidden md:flex items-center gap-1">
-          {TABS.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => (
-            <button 
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded font-label text-[10px] font-bold uppercase tracking-wider transition-all ${activeTab === tab.id ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
-            >
-              <span className="material-symbols-outlined text-sm">{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-
-        {/* 우측 사용자 */}
-        <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-2 bg-surface-container px-3 py-1.5 rounded-lg">
-            <span className="w-6 h-6 bg-primary rounded-full flex items-center justify-center text-white text-xs font-black font-headline">{currentUser.name?.[0]}</span>
-            <span className="font-label text-xs text-on-surface-variant">{currentUser.name}</span>
-            <span className="font-label text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase tracking-widest">{currentUser.role}</span>
-          </div>
-          <button onClick={handleLogout} className="p-2 hover:bg-surface-container rounded-lg transition-colors" title="로그아웃">
-            <span className="material-symbols-outlined text-outline text-sm">logout</span>
-          </button>
-        </div>
-      </header>
-
-      {/* 메인 콘텐츠 */}
-      <main className="flex-1 p-4 md:p-8 space-y-8 pb-32">
+          {/* 스크롤 가능한 메인 콘텐츠 */}
+          <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-24 md:pb-8">
         {activeTab === 'dashboard' && <Dashboard buildings={buildings} summary={summary} siteConfig={siteConfig} />}
 
         {activeTab === 'elevation' && (
@@ -420,7 +532,8 @@ function App() {
               {[
                 { id: 'total', label: '현장 전체', icon: 'grid_view' },
                 { id: 'oiling', label: '기름칠', icon: 'format_paint' },
-                { id: 'cleaning', label: '청소만', icon: 'cleaning_services' }
+                { id: 'cleaning', label: '청소만', icon: 'cleaning_services' },
+                { id: 'unloading', label: '하역만', icon: 'inventory_2' }
               ].map(mode => (
                 <button
                   key={mode.id}
@@ -431,12 +544,6 @@ function App() {
                   {mode.label}
                 </button>
               ))}
-              <button
-                className="ml-auto flex items-center gap-2 px-4 py-2 rounded bg-tertiary-container text-on-tertiary-container font-label text-xs uppercase font-bold transition-all hover:opacity-90"
-                onClick={() => { setModalType('lifting'); setShowModal(true); }}
-              >
-                <span className="material-symbols-outlined text-sm">arrow_upward</span> 인양 정보 등록
-              </button>
             </div>
             <ElevationView buildings={buildings} summary={summary} onCellClick={handleCellClick} viewMode={viewMode} />
           </div>
@@ -446,26 +553,43 @@ function App() {
           <AdvancedElevationView buildings={buildings} summary={summary} onCellClick={handleCellClick} />
         )}
 
+        {activeTab === 'unified' && (
+          <UnifiedMatrixView buildings={buildings} summary={summary} />
+        )}
+
+        {activeTab === 'matrix' && (
+          <MatrixStatusView buildings={buildings} summary={summary} />
+        )}
+
+        {activeTab === 'matrix2' && (
+          <MatrixStatusView2 buildings={buildings} summary={summary} />
+        )}
+
         {activeTab === 'settings' && (
-          <MasterManager 
-            buildings={buildings} 
-            onRefresh={() => { fetchBaseData(); fetchSummary(); fetchSiteConfig(); }} 
-            siteConfig={siteConfig} 
+          <MasterManager
+            buildings={buildings}
+            onRefresh={() => { fetchBaseData(); fetchSummary(); fetchSiteConfig(); }}
+            siteConfig={siteConfig}
             currentUser={currentUser}
             currentSite={currentSite}
             onSiteUpdate={(site) => {
               setCurrentSite(site);
               localStorage.setItem('ba_current_site', JSON.stringify(site));
             }}
+            allTabs={ALL_TABS}
+            primaryTabIds={primaryTabIds}
+            onPrimaryTabsChange={handlePrimaryTabsChange}
           />
         )}
         {activeTab === 'calendar' && <CalendarView summary={summary} />}
         {activeTab === 'cost' && <CostManager currentSite={currentSite} />}
         {activeTab === 'personnel' && <PersonnelManager currentSite={currentSite} />}
         {activeTab === 'workers' && <WorkerManager currentSite={currentSite} />}
-        {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} />}
+        {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} currentSite={currentSite} />}
         {activeTab === 'closing' && <MonthlyClosing siteId={currentSite?.id} token={localStorage.getItem('ba_token')} />}
-        {activeTab === 'monthly_analysis' && <MonthlyAnalysis currentSite={currentSite} buildings={buildings} />}
+        {activeTab === 'monthly_analysis2' && <MonthlyAnalysis2 currentSite={currentSite} buildings={buildings} />}
+        {activeTab === 'sign_approval' && <CleaningSignApproval currentSite={currentSite} />}
+        {activeTab === 'cleaning_export' && <CleaningStatusExport currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'projection' && <RevenueProjection currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'emergency' && <EmergencyContacts />}
         {activeTab === 'sync' && <SyncManager currentUser={currentUser} />}
@@ -474,25 +598,62 @@ function App() {
           <div className="space-y-6">
             <h2 className="text-4xl font-black text-primary tracking-tight font-headline">공정 기록 관리</h2>
 
-            <div className="bg-surface-container-lowest p-6 shadow-sm rounded-lg flex flex-wrap gap-4 items-center justify-between border border-outline-variant/20">
-              <div className="flex bg-surface-container p-1 rounded-lg">
-                {['cleaning', 'oiling', 'lifting'].map(type => (
-                  <button
-                    key={type}
-                    className={`px-4 md:px-6 py-2 font-bold rounded text-xs uppercase tracking-wider transition-all ${modalType === type ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
-                    onClick={() => setModalType(type)}
-                  >
-                    {type === 'cleaning' ? '청소' : type === 'oiling' ? '박리제칠' : '갱폼 인양'}
-                  </button>
-                ))}
+            {/* 공정 타입 + 조회 모드 선택 */}
+            <div className="bg-surface-container-lowest p-4 shadow-sm rounded-lg flex flex-wrap gap-3 items-center justify-between border border-outline-variant/20">
+              <div className="flex items-center gap-3">
+                <div className="flex bg-surface-container p-1 rounded-lg">
+                  {['cleaning', 'oiling', 'unloading'].map(type => (
+                    <button
+                      key={type}
+                      className={`px-4 py-2 font-bold rounded text-xs uppercase tracking-wider transition-all ${modalType === type ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
+                      onClick={() => setModalType(type)}
+                    >
+                      {type === 'cleaning' ? '청소' : type === 'oiling' ? '박리제칠' : '하역'}
+                    </button>
+                  ))}
+                </div>
+                {/* 일자별 / 동별 토글 */}
+                <div className="flex bg-surface-container p-1 rounded-lg">
+                  {[{ id: 'date', label: '일자별', icon: 'calendar_today' }, { id: 'building', label: '동별', icon: 'apartment' }].map(m => (
+                    <button
+                      key={m.id}
+                      className={`flex items-center gap-1 px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${filterMode === m.id ? 'bg-secondary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
+                      onClick={() => { setFilterMode(m.id); if (m.id === 'building' && !filterBuilding && buildings.length > 0) setFilterBuilding(buildings[0].id.toString()); }}
+                    >
+                      <span className="material-symbols-outlined text-sm">{m.icon}</span>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex gap-4 items-center">
-                <input type="date" className="bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2 px-2 text-sm" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
-                <button className="flex items-center gap-2 font-label text-[10px] uppercase tracking-widest text-primary hover:text-primary-container transition-colors" onClick={() => setShowModal(true)}>
+              <div className="flex gap-3 items-center">
+                {filterMode === 'date' ? (
+                  <input type="date" className="bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2 px-2 text-sm" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} />
+                ) : null}
+                <button className="flex items-center gap-2 font-label text-[10px] uppercase tracking-widest text-primary hover:opacity-70 transition-colors" onClick={() => setShowModal(true)}>
                   <span className="material-symbols-outlined text-sm">add</span> 기록 추가
                 </button>
               </div>
             </div>
+
+            {/* 동별 모드: 건물 선택 버튼 */}
+            {filterMode === 'building' && (
+              <div className="flex flex-wrap gap-2">
+                {buildings.map(b => (
+                  <button
+                    key={b.id}
+                    onClick={() => setFilterBuilding(b.id.toString())}
+                    className={`px-4 py-2 rounded-lg font-label text-xs font-black uppercase tracking-wider transition-all border ${
+                      filterBuilding === b.id.toString()
+                        ? 'bg-primary text-white border-primary shadow-md'
+                        : 'bg-surface-container text-on-surface-variant border-outline-variant/30 hover:bg-surface-container-high'
+                    }`}
+                  >
+                    {b.name}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="bg-surface-container-lowest shadow-sm rounded-lg overflow-x-auto border border-outline-variant/20">
               <table className="w-full text-left">
@@ -500,8 +661,10 @@ function App() {
                   <tr>
                     <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">빌딩/호</th>
                     <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">층</th>
+                    {filterMode === 'building' && <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">날짜</th>}
                     <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">진행 상세</th>
                     <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">비고/메모</th>
+                    <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline">작성일자</th>
                     <th className="py-4 px-4 font-label text-[10px] uppercase tracking-widest text-outline text-right">관리</th>
                   </tr>
                 </thead>
@@ -510,51 +673,113 @@ function App() {
                     <tr key={r.id} className="bg-surface hover:bg-surface-container-low transition-colors">
                       <td className="py-4 px-4 font-label font-bold text-primary">{r.building_name} <span className="text-secondary">{r.ho || ''}</span></td>
                       <td className="py-4 px-4 font-body">{formatFloorDisplay(r.floor)}</td>
+                      {filterMode === 'building' && <td className="py-4 px-4 font-body text-sm text-on-surface-variant">{r.date}</td>}
                       <td className="py-4 px-4 font-body">
-                        {modalType === 'cleaning' && <span className={`${r.progress === 100 ? 'text-success' : 'text-primary'} font-bold`}>{r.phase}차 공정 ({r.progress}%)</span>}
+                        {(modalType === 'cleaning' || modalType === 'unloading') && (
+                          <span className={`${r.phase === 9 ? 'text-amber-500' : r.phase >= 2 ? 'text-success' : 'text-sky-500'} font-bold`}>
+                            {r.phase === 9 ? '기타청소' : `${r.phase}차청소`}
+                          </span>
+                        )}
+                        {modalType === 'cleaning' && r.phase === 2 && (
+                          r.confirmed === 1
+                            ? <span className="ml-2 inline-flex items-center gap-1 bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full"><span className="material-symbols-outlined text-xs">verified</span>서명완료 {r.sign_date}</span>
+                            : <span className="ml-2 inline-flex items-center gap-1 bg-lime-100 text-lime-700 text-[10px] font-bold px-2 py-0.5 rounded-full"><span className="material-symbols-outlined text-xs">pending</span>서명대기</span>
+                        )}
                         {modalType === 'oiling' && <span className="text-secondary-container">담당: {r.operator}</span>}
-                        {modalType === 'lifting' && <span>{r.memo}</span>}
                       </td>
                       <td className="py-4 px-4 font-body text-sm text-on-surface-variant">{r.remarks || r.memo}</td>
+                      <td className="py-4 px-4 font-body text-xs text-outline whitespace-nowrap">
+                        {r.created_at ? dayjs(r.created_at).format('MM/DD HH:mm') : ''}
+                      </td>
                       <td className="py-4 px-4 text-right flex justify-end gap-3">
+                        {modalType === 'cleaning' && r.phase === 2 && r.confirmed !== 1 && (
+                          <span
+                            className="material-symbols-outlined text-green-700 cursor-pointer hover:text-green-900 transition-colors"
+                            title="본청 서명 완료"
+                            onClick={async () => {
+                              if (!window.confirm(`${r.building_name} ${r.floor}층 2차 청소 서명을 완료 처리하시겠습니까?`)) return;
+                              const token = localStorage.getItem('ba_token');
+                              await fetch(`${API_URL}/records/cleaning/${r.id}/sign`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'X-Site-Id': currentSite?.id },
+                                body: JSON.stringify({ sign_date: dayjs().format('YYYY-MM-DD') }),
+                              });
+                              fetchRecords();
+                            }}
+                          >draw</span>
+                        )}
                         <span className="material-symbols-outlined text-outline cursor-pointer hover:text-primary transition-colors" title="수정" onClick={() => handleEditRecordFromTable(r)}>edit</span>
                         <span className="material-symbols-outlined text-outline cursor-pointer hover:text-error transition-colors" title="삭제" onClick={() => handleDelete(r.id)}>delete</span>
                       </td>
                     </tr>
                   ))}
-                  {records.length === 0 && <tr><td colSpan="5" className="py-12 text-center text-outline font-body">기록된 데이터가 없습니다.</td></tr>}
+                  {records.length === 0 && <tr><td colSpan={filterMode === 'building' ? 7 : 6} className="py-12 text-center text-outline font-body">기록된 데이터가 없습니다.</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
         )}
-      </main>
+          </main>
+        </div>{/* flex-1 메인 영역 끝 */}
+      </div>{/* flex h-screen 끝 */}
 
-      {/* 모바일 하단 네비게이션 */}
-      <nav className="fixed bottom-0 left-0 w-full flex justify-around items-center h-20 pb-safe px-1 bg-surface shadow-[0_-4px_24px_rgba(0,0,0,0.06)] z-[50] md:hidden border-t border-outline-variant/20 overflow-x-auto">
-        {TABS.filter(t => !t.adminOnly || currentUser?.role === 'admin').map(tab => (
+      {/* ── 모바일 사이드바 드로어 ── */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-[60] md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebarOpen(false)} />
+          <aside className="absolute left-0 top-0 h-full w-60 bg-primary shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-secondary rounded flex items-center justify-center">
+                  <span className="material-symbols-outlined text-white text-xs">architecture</span>
+                </div>
+                <span className="text-white font-black text-xs tracking-tight uppercase font-headline">Blueprint Authority</span>
+              </div>
+              <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+                <span className="material-symbols-outlined text-white/60 text-xl">close</span>
+              </button>
+            </div>
+            <SidebarContent onTabClick={(id) => { setActiveTab(id); setSidebarOpen(false); }} />
+          </aside>
+        </div>
+      )}
+
+      {/* ── 모바일 하단 네비게이션 ── */}
+      <nav className="fixed bottom-0 left-0 w-full flex justify-around items-center h-16 pb-safe px-1 bg-white shadow-[0_-2px_12px_rgba(0,0,0,0.08)] z-[50] md:hidden border-t border-gray-200">
+        {visiblePrimaryTabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex flex-col items-center justify-center py-1 px-2 rounded-sm min-w-[48px] flex-shrink-0 ${activeTab === tab.id ? 'bg-primary text-white' : 'text-primary/60 hover:bg-primary/10'}`}
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg min-w-[48px] transition-all ${
+              activeTab === tab.id
+                ? 'text-secondary'
+                : 'text-gray-400'
+            }`}
           >
-            <span className="material-symbols-outlined text-xl">{tab.icon}</span>
-            <span className="font-label text-[8px] font-medium uppercase tracking-widest mt-0.5">{tab.label}</span>
+            <span className={`material-symbols-outlined text-xl ${activeTab === tab.id ? 'text-secondary' : ''}`}>{tab.icon}</span>
+            <span className={`font-label text-[8px] font-bold uppercase tracking-widest mt-0.5 ${activeTab === tab.id ? 'text-secondary' : 'text-gray-400'}`}>{tab.label}</span>
           </button>
         ))}
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-lg min-w-[48px] text-gray-400"
+        >
+          <span className="material-symbols-outlined text-xl">menu</span>
+          <span className="font-label text-[8px] font-bold uppercase tracking-widest mt-0.5">더보기</span>
+        </button>
       </nav>
 
-      {/* 공용 입력 모달 */}
+      {/* ── 공용 입력 모달 ── */}
       {showModal && (
-        <div className="fixed inset-0 bg-surface-variant/80 backdrop-blur-sm z-[100] flex items-end md:items-center justify-center p-0 md:p-4">
-          <div className="bg-surface-container-lowest w-full max-w-lg md:rounded-lg shadow-xl relative max-h-[90vh] overflow-y-auto rounded-t-2xl">
-            <div className="absolute top-0 left-0 w-1 h-full bg-secondary-container rounded-l-2xl md:rounded-l-lg"></div>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="bg-white w-full max-w-lg md:rounded-xl shadow-2xl relative max-h-[90vh] overflow-y-auto rounded-t-2xl">
+            <div className="absolute top-0 left-0 w-1 h-full bg-secondary rounded-l-2xl md:rounded-l-xl"></div>
 
             <div className="p-6 md:p-8">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary flex items-center gap-2">
                   <span className="material-symbols-outlined">edit_square</span>
-                  {modalType === 'oiling' ? '박리제칠 기록' : modalType === 'lifting' ? '인양 기록' : '청소 공정 기록'}
+                  {modalType === 'oiling' ? '박리제칠 기록' : modalType === 'cleaning' ? '청소 공정 기록' : '하역 공정 기록'}
                 </h3>
                 <button onClick={() => setShowModal(false)}>
                   <span className="material-symbols-outlined text-outline hover:text-on-surface">close</span>
@@ -570,7 +795,7 @@ function App() {
                       {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </div>
-                  {modalType === 'cleaning' && formData.building_id && (
+                  {(modalType === 'cleaning' || modalType === 'unloading') && formData.building_id && (
                     <div>
                       <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">호수 다중 선택 (여럿 선택 가능)</label>
                       <div className="flex flex-wrap gap-2 p-2 bg-surface-container-low rounded-lg border border-outline-variant/30">
@@ -646,36 +871,21 @@ function App() {
                   <input type="date" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} />
                 </div>
 
-                {modalType === 'cleaning' && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">단계</label>
-                      <select value={formData.phase} onChange={(e) => setFormData({ ...formData, phase: parseInt(e.target.value) })} className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2">
-                        {[1, 2, 3, 4].map(p => <option key={p} value={p}>{p}차 공정</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">진척도</label>
-                      <select value={formData.progress} onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) })} className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2">
-                        <option value={50}>50% (부분 완료)</option>
-                        <option value={100}>100% (최종 완료)</option>
-                      </select>
-                    </div>
+                {(modalType === 'cleaning' || modalType === 'unloading') && (
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">단계</label>
+                    <select value={formData.phase} onChange={(e) => setFormData({ ...formData, phase: parseInt(e.target.value) })} className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2">
+                      <option value={1}>1차청소</option>
+                      <option value={2}>2차청소</option>
+                      <option value={9}>기타청소 (할석 등)</option>
+                    </select>
                   </div>
                 )}
 
-                {(modalType === 'oiling' || modalType === 'lifting') && (
+                {modalType === 'oiling' && (
                   <div>
-                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">{modalType === 'oiling' ? '작업자' : '상태'}</label>
-                    {modalType === 'oiling' ? (
-                      <input type="text" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" placeholder="이름" value={formData.operator} onChange={(e) => setFormData({ ...formData, operator: e.target.value })} />
-                    ) : (
-                      <select className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.status || 'planned'} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>
-                        <option value="planned">계획</option>
-                        <option value="in_progress">진행중</option>
-                        <option value="completed">완료</option>
-                      </select>
-                    )}
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">작업자</label>
+                    <input type="text" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" placeholder="이름" value={formData.operator} onChange={(e) => setFormData({ ...formData, operator: e.target.value })} />
                   </div>
                 )}
 
@@ -706,58 +916,14 @@ function App() {
         </div>
       )}
 
-      {/* 모바일 FAB */}
+      {/* ── 모바일 FAB ── */}
       <button
         onClick={() => setShowModal(true)}
-        className="fixed bottom-24 right-6 w-14 h-14 bg-gradient-to-br from-secondary to-secondary-container text-white rounded-full shadow-xl flex items-center justify-center md:hidden z-[40] active:scale-90 transition-transform"
+        className="fixed bottom-20 right-5 w-13 h-13 bg-secondary text-white rounded-full shadow-xl flex items-center justify-center md:hidden z-[40] active:scale-90 transition-transform w-12 h-12"
       >
-        <span className="material-symbols-outlined text-3xl">add</span>
+        <span className="material-symbols-outlined text-2xl">add</span>
       </button>
 
-      {/* ── Fixed Footer Site Info Bar ── */}
-      {currentUser && (
-        <footer className="fixed bottom-20 md:bottom-0 left-0 w-full z-[40] pointer-events-none px-4 pb-4 md:pb-6">
-          <div className="max-w-7xl mx-auto pointer-events-auto">
-            <div className="bg-surface/60 backdrop-blur-xl border border-outline-variant/20 shadow-[0_8px_32px_rgba(0,0,0,0.1)] rounded-xl py-3 px-6 flex items-center justify-between gap-4 animate-slide-up">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="material-symbols-outlined text-primary text-lg">location_on</span>
-                </div>
-                <div className="overflow-hidden">
-                  <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">현재 현장 위치</p>
-                  <p className="font-body text-sm font-bold text-on-surface truncate">
-                    {siteConfig?.site_address || '현장 주소를 등록해주세요'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="hidden sm:flex items-center gap-8">
-                <div className="flex items-center gap-3 border-l border-outline-variant/30 pl-8">
-                  <div className="w-8 h-8 rounded-full bg-tertiary/10 flex items-center justify-center flex-shrink-0">
-                    <span className="material-symbols-outlined text-tertiary text-lg">calendar_today</span>
-                  </div>
-                  <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">공사 기간</p>
-                    <p className="font-body text-xs font-bold text-on-surface">
-                      {siteConfig?.start_date || '--'} ~ {siteConfig?.end_date || '--'}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-3 border-l border-outline-variant/30 pl-8">
-                  <div className="text-right">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-outline leading-none mb-1">시스템 상태</p>
-                    <p className="flex items-center gap-1.5 justify-end">
-                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse"></span>
-                      <span className="font-label text-[10px] font-black text-on-surface uppercase tracking-wider">Online</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </footer>
-      )}
     </>
   );
 }

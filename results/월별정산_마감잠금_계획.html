@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>월별 정산 마감 잠금 기능 계획</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Malgun Gothic', sans-serif; background: #f0f2f5; color: #1a1a2e; }
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 40px 24px 60px; }
+
+    /* 제목 */
+    .page-title { font-size: 26px; font-weight: 800; color: #1a1a2e; }
+    .page-sub   { font-size: 13px; color: #666; margin-top: 4px; margin-bottom: 36px; }
+
+    /* 카드 */
+    .card { background: #fff; border-radius: 14px; box-shadow: 0 2px 12px rgba(0,0,0,.07); padding: 28px 32px; margin-bottom: 28px; }
+    .card-title { font-size: 15px; font-weight: 800; color: #1a1a2e; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    .num { display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%; background: #1a1a2e; color: #fff; font-size: 13px; font-weight: 800; flex-shrink: 0; }
+
+    /* 배지 */
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; vertical-align: middle; }
+    .done  { background: #dcfce7; color: #166534; }
+    .todo  { background: #dbeafe; color: #1d4ed8; }
+    .warn  { background: #fee2e2; color: #b91c1c; }
+    .gray  { background: #f1f5f9; color: #475569; }
+
+    /* 알림 박스 */
+    .alert { border-radius: 10px; padding: 16px 18px; font-size: 13px; line-height: 1.8; margin: 14px 0; }
+    .alert-red    { background: #fff5f5; border-left: 4px solid #f87171; }
+    .alert-blue   { background: #eff6ff; border-left: 4px solid #60a5fa; }
+    .alert-green  { background: #f0fdf4; border-left: 4px solid #4ade80; }
+    .alert-yellow { background: #fefce8; border-left: 4px solid #facc15; }
+    .alert strong { display: block; margin-bottom: 4px; font-weight: 700; }
+
+    /* 테이블 */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+    th { background: #1a1a2e; color: #fff; padding: 10px 14px; text-align: left; font-weight: 600; }
+    td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    tr:nth-child(even) td { background: #f8fafc; }
+
+    /* 코드 */
+    pre { background: #1e293b; color: #e2e8f0; border-radius: 10px; padding: 18px 20px;
+      font-size: 12.5px; font-family: 'Consolas', monospace; overflow-x: auto; line-height: 1.75; margin: 10px 0; }
+    .c-rem { color: #94a3b8; }
+    .c-add { color: #86efac; font-weight: 700; }
+    .c-del { color: #f87171; text-decoration: line-through; }
+    .c-kw  { color: #c4b5fd; }
+    .c-str { color: #fde68a; }
+    .c-fn  { color: #67e8f9; }
+
+    /* 플로우 */
+    .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: 16px 0; }
+    .fbox { flex: 1; min-width: 130px; background: #f8fafc; border: 1.5px solid #cbd5e1;
+      border-radius: 10px; padding: 12px 14px; text-align: center; font-size: 12px; }
+    .fbox strong { display: block; font-size: 11px; color: #64748b; margin-bottom: 3px; }
+    .fbox span   { font-weight: 700; font-size: 13px; }
+    .farr { padding: 0 6px; color: #94a3b8; font-size: 20px; }
+    .fbox.blue   { border-color: #93c5fd; background: #eff6ff; }
+    .fbox.blue span   { color: #1d4ed8; }
+    .fbox.green  { border-color: #86efac; background: #f0fdf4; }
+    .fbox.green span  { color: #15803d; }
+    .fbox.red    { border-color: #fca5a5; background: #fff5f5; }
+    .fbox.red span    { color: #b91c1c; }
+
+    /* 목차 */
+    .toc { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
+    .toc-item { background: #fff; border-radius: 10px; border: 1.5px solid #e2e8f0;
+      padding: 14px 18px; font-size: 13px; display: flex; align-items: center; gap: 10px; }
+    .toc-item .icon { font-size: 22px; }
+    .toc-item .label { font-weight: 700; color: #1a1a2e; }
+    .toc-item .sub   { font-size: 11px; color: #64748b; }
+
+    /* 모크업 */
+    .mockup { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin: 16px 0; }
+    .mock-topbar { background: #1a1a2e; color: #fff; padding: 8px 16px; font-size: 11px; display: flex; gap: 6px; align-items: center; }
+    .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .mock-body { padding: 18px 20px; }
+    .mock-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .mock-title { font-size: 16px; font-weight: 800; color: #1a1a2e; }
+    .mock-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .mock-select { padding: 5px 10px; border: 1.5px solid #cbd5e1; border-radius: 7px; font-size: 12px; background: #fff; }
+    .mock-btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; border: none; cursor: default; }
+    .btn-excel  { background: #16a34a; color: #fff; }
+    .btn-close  { background: #374151; color: #fff; }
+    .btn-unclose{ background: #ea580c; color: #fff; }
+    .btn-print  { background: #1d4ed8; color: #fff; }
+    .badge-closed  { background: #fee2e2; color: #b91c1c; border: 1.5px solid #fca5a5; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
+    .badge-open    { background: #f0fdf4; color: #15803d; border: 1.5px solid #86efac; border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
+    .mock-banner { background: #fff5f5; border: 1.5px solid #fca5a5; border-radius: 8px;
+      padding: 10px 14px; font-size: 12px; color: #b91c1c; display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .mock-table-head { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0; }
+    .mock-th { background: #e2e8f0; padding: 8px 10px; font-size: 11px; font-weight: 700; color: #374151; border-right: 1px solid #cbd5e1; }
+    .mock-td { padding: 7px 10px; font-size: 11px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+    .mock-td.amt { color: #1d4ed8; font-weight: 700; text-align: right; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } .toc { grid-template-columns: 1fr; } }
+
+    ul.check { list-style: none; padding-left: 0; }
+    ul.check li { padding: 5px 0 5px 22px; font-size: 13px; position: relative; }
+    ul.check li::before { content: '✓'; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+    ul.check li.x::before { content: '✕'; color: #dc2626; }
+    ul.check li.q::before { content: '→'; color: #2563eb; }
+
+    .step-list { list-style: none; padding: 0; counter-reset: step; }
+    .step-list li { counter-increment: step; padding: 10px 0 10px 44px; position: relative; font-size: 13px; border-bottom: 1px dashed #e5e7eb; }
+    .step-list li:last-child { border-bottom: none; }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 8px;
+      width: 26px; height: 26px; background: #1a1a2e; color: #fff; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="page-title">월별 정산 마감 잠금 기능 — 구현 계획서</div>
+  <div class="page-sub">작성일: 2026-06-29 &nbsp;·&nbsp; 대상: MonthlyAnalysis2.jsx (월별 통합 정산)</div>
+
+  <!-- 목차 -->
+  <div class="toc">
+    <div class="toc-item">
+      <span class="icon">🔁</span>
+      <div><div class="label">① 오적용 복구</div><div class="sub">MonthlyClosing.jsx → 원상 복구</div></div>
+    </div>
+    <div class="toc-item">
+      <span class="icon">🔒</span>
+      <div><div class="label">② 마감 잠금 적용</div><div class="sub">MonthlyAnalysis2.jsx → 마감 UI 추가</div></div>
+    </div>
+    <div class="toc-item">
+      <span class="icon">✅</span>
+      <div><div class="label">③ 서버 측 (완료)</div><div class="sub">DB 테이블·API·잠금 체크 이미 구현</div></div>
+    </div>
+    <div class="toc-item">
+      <span class="icon">🖼</span>
+      <div><div class="label">④ UI 목업</div><div class="sub">마감 전 / 마감 후 화면 비교</div></div>
+    </div>
+  </div>
+
+
+  <!-- ① 복구 -->
+  <div class="card">
+    <div class="card-title"><span class="num">1</span> MonthlyClosing.jsx 복구 <span class="badge warn">오적용 제거</span></div>
+
+    <div class="alert alert-red">
+      <strong>⚠ 이전 구현에서 잘못된 점</strong>
+      마감 잠금 UI(🔒 뱃지, 마감 버튼, 마감 취소 버튼, 안내 배너)를
+      <strong>MonthlyClosing.jsx (공수 통합조회)</strong>에 붙였습니다.
+      사용자가 원하는 것은 <strong>MonthlyAnalysis2.jsx (월별 통합 정산)</strong>입니다.
+    </div>
+
+    <table>
+      <thead><tr><th>컴포넌트</th><th>실제 역할</th><th>마감 UI 위치</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>MonthlyClosing.jsx</code></td>
+          <td>공수 통합조회 (작업자별 일별 공수·노무비)</td>
+          <td class="x" style="color:#b91c1c; font-weight:700;">❌ 제거 대상</td>
+        </tr>
+        <tr>
+          <td><code>MonthlyAnalysis2.jsx</code></td>
+          <td>월별 통합 정산 (오일링+1/2차 청소 금액 정산서)</td>
+          <td style="color:#15803d; font-weight:700;">✅ 적용 위치</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font-size:13px; margin-top:14px; color:#374151;">MonthlyClosing.jsx를 이전 구현(마감 기능 없는 원래 상태)으로 복원합니다.</p>
+  </div>
+
+
+  <!-- ② 마감 UI 위치 -->
+  <div class="card">
+    <div class="card-title"><span class="num">2</span> MonthlyAnalysis2.jsx 에 추가할 내용 <span class="badge todo">구현 대상</span></div>
+
+    <div class="alert alert-blue">
+      <strong>📍 적용 화면: 월별 통합 정산 (📊 MonthlyAnalysis2)</strong>
+      상단 헤더 영역에 마감 상태 뱃지·버튼을 추가하고, <strong>엑셀 저장</strong> 클릭 후 마감 여부를 확인합니다.
+      마감된 월은 빨간 배너로 알리고 데이터 수정이 서버에서 차단됩니다.
+    </div>
+
+    <p style="font-size:13px; font-weight:700; margin: 16px 0 8px; color:#1a1a2e;">추가할 state / 함수</p>
+    <pre><span class="c-rem">// 추가할 state</span>
+<span class="c-kw">const</span> [closedMonths, setClosedMonths] = useState(<span class="c-kw">new</span> Set());
+<span class="c-kw">const</span> [closingInProgress, setClosingInProgress] = useState(<span class="c-kw">false</span>);
+
+<span class="c-rem">// 파생값</span>
+<span class="c-kw">const</span> isClosed = closedMonths.has(month);   <span class="c-rem">// 현재 선택 월 마감 여부</span>
+
+<span class="c-rem">// 마감된 월 목록 로드 (월 변경 시마다 갱신)</span>
+<span class="c-kw">const</span> <span class="c-fn">fetchClosedMonths</span> = <span class="c-kw">async</span> () => {
+  <span class="c-kw">const</span> res = <span class="c-kw">await</span> fetch(<span class="c-str">'/api/monthly-closings'</span>, { headers });
+  <span class="c-kw">const</span> rows = <span class="c-kw">await</span> res.json();
+  setClosedMonths(<span class="c-kw">new</span> Set(rows.map(r => r.month)));
+};
+
+<span class="c-rem">// 마감 처리</span>
+<span class="c-kw">const</span> <span class="c-fn">doClose</span> = <span class="c-kw">async</span> () => {
+  setClosingInProgress(<span class="c-kw">true</span>);
+  <span class="c-kw">await</span> fetch(<span class="c-str">'/api/monthly-closings'</span>, {
+    method: <span class="c-str">'POST'</span>,
+    headers: { ...headers, <span class="c-str">'Content-Type'</span>: <span class="c-str">'application/json'</span> },
+    body: JSON.stringify({ month }),
+  });
+  <span class="c-kw">await</span> <span class="c-fn">fetchClosedMonths</span>();
+  setClosingInProgress(<span class="c-kw">false</span>);
+};
+
+<span class="c-rem">// 마감 취소</span>
+<span class="c-kw">const</span> <span class="c-fn">doUnclose</span> = <span class="c-kw">async</span> () => {
+  <span class="c-kw">if</span> (!window.confirm(<span class="c-str">`${month} 마감을 취소하시겠습니까?`</span>)) <span class="c-kw">return</span>;
+  <span class="c-kw">await</span> fetch(<span class="c-str">`/api/monthly-closings/${month}`</span>, { method: <span class="c-str">'DELETE'</span>, headers });
+  <span class="c-kw">await</span> <span class="c-fn">fetchClosedMonths</span>();
+};</pre>
+
+    <p style="font-size:13px; font-weight:700; margin: 18px 0 8px; color:#1a1a2e;">엑셀 저장 함수 수정 — 저장 후 마감 제안</p>
+    <pre><span class="c-kw">const</span> <span class="c-fn">handleExcelDownload</span> = <span class="c-kw">async</span> () => {
+  <span class="c-rem">// ... 기존 엑셀 생성 로직 동일 ...</span>
+
+  <span class="c-rem">// ── 추가: 저장 완료 후 미마감이면 마감 제안 ──</span>
+  <span class="c-add">if (!isClosed) {
+    const ok = window.confirm(
+      `${month} 엑셀 저장이 완료됐습니다.\n\n이 월을 마감하시겠습니까?\n마감 후 해당 월 데이터는 수정·삭제가 잠깁니다.`
+    );
+    if (ok) await doClose();
+  }</span>
+};</pre>
+
+    <p style="font-size:13px; font-weight:700; margin: 18px 0 8px; color:#1a1a2e;">JSX 헤더 영역 수정 — 뱃지·버튼 추가 위치</p>
+    <pre><span class="c-rem">{/* 기존 헤더 버튼 영역 (엑셀 저장 / 청구서 출력) */}</span>
+&lt;div className=<span class="c-str">"flex gap-2"</span>&gt;
+
+  <span class="c-add">{/* ── 추가: 마감 상태 뱃지 */}
+  {isClosed
+    ? &lt;span className="badge-closed"&gt;🔒 마감됨&lt;/span&gt;
+    : &lt;span className="badge-open"&gt;🔓 미마감&lt;/span&gt;
+  }
+
+  {/* ── 추가: 마감 / 마감 취소 버튼 */}
+  {isClosed
+    ? &lt;button onClick={doUnclose} disabled={closingInProgress}
+        className="..."&gt;마감 취소&lt;/button&gt;
+    : &lt;button onClick={doClose} disabled={closingInProgress || !data}
+        className="..."&gt;이 월 마감&lt;/button&gt;
+  }</span>
+
+  &lt;button onClick={handleExcelDownload} ...&gt;엑셀 저장&lt;/button&gt;
+  &lt;button onClick={handlePrint} ...&gt;청구서 출력&lt;/button&gt;
+&lt;/div&gt;
+
+<span class="c-add">{/* ── 추가: 마감 완료 안내 배너 */}
+{isClosed &amp;&amp; (
+  &lt;div className="banner-closed"&gt;
+    🔒 {month}은 마감 완료된 월입니다.
+    해당 월 데이터는 수정·삭제·추가가 잠겨 있습니다.
+    수정이 필요하면 [마감 취소] 버튼을 누르세요.
+  &lt;/div&gt;
+)}</span></pre>
+  </div>
+
+
+  <!-- ③ 서버 완료 -->
+  <div class="card">
+    <div class="card-title"><span class="num">3</span> 서버 측 — 이미 구현 완료 <span class="badge done">변경 불필요</span></div>
+
+    <table>
+      <thead><tr><th>항목</th><th>내용</th><th>상태</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>DB 테이블</td>
+          <td><code>monthly_closings (site_id, month, closed_at, closed_by)</code></td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>마감 조회 API</td>
+          <td><code>GET /api/monthly-closings</code> — 마감된 월 목록</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>마감 처리 API</td>
+          <td><code>POST /api/monthly-closings</code> — 월 마감 등록</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>마감 취소 API</td>
+          <td><code>DELETE /api/monthly-closings/:month</code></td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>오일링 기록 잠금</td>
+          <td>POST/PUT/DELETE <code>/api/records/oiling</code> → 마감 월 차단</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>청소 기록 잠금</td>
+          <td>POST/PUT/DELETE <code>/api/records/cleaning</code> + 서명 처리 차단</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>하역 기록 잠금</td>
+          <td>POST/PUT/DELETE <code>/api/records/unloading</code> → 마감 월 차단</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>인건비 기록 잠금</td>
+          <td>POST/PUT/DELETE <code>/api/personnel</code> → 마감 월 차단</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+        <tr>
+          <td>비용 기록 잠금</td>
+          <td>PUT/DELETE <code>/api/costs</code> → 마감 월 차단</td>
+          <td><span class="badge done">✅ 완료</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alert alert-green" style="margin-top:14px;">
+      <strong>🔒 잠금 동작</strong>
+      마감된 월의 데이터를 수정·삭제하면 서버가 <strong>HTTP 403</strong>을 반환합니다.<br>
+      메시지: <em>"YYYY-MM 은 마감 완료된 월입니다. 수정하려면 마감 취소 후 진행하세요."</em>
+    </div>
+  </div>
+
+
+  <!-- ④ UI 목업 -->
+  <div class="card">
+    <div class="card-title"><span class="num">4</span> UI 목업 — 마감 전 / 마감 후</div>
+
+    <div class="two-col">
+
+      <!-- 마감 전 -->
+      <div>
+        <p style="font-size:13px; font-weight:700; margin-bottom:10px; color:#15803d;">🔓 마감 전 (미마감 상태)</p>
+        <div class="mockup">
+          <div class="mock-topbar">
+            <div class="mock-dot" style="background:#ff5f57;"></div>
+            <div class="mock-dot" style="background:#febc2e;"></div>
+            <div class="mock-dot" style="background:#28c840;"></div>
+            <span style="margin-left:8px; font-size:11px;">월별 통합 정산</span>
+          </div>
+          <div class="mock-body">
+            <div class="mock-header">
+              <div class="mock-title">📊 월별 통합 정산</div>
+              <div class="mock-controls">
+                <select class="mock-select"><option>2026-06</option></select>
+                <span class="badge-open">🔓 미마감</span>
+                <button class="mock-btn btn-close">이 월 마감</button>
+                <button class="mock-btn btn-excel">엑셀 저장</button>
+                <button class="mock-btn btn-print">청구서 출력</button>
+              </div>
+            </div>
+            <div style="background:#f1f5f9; border-radius:8px; padding:10px 14px; font-size:12px; color:#374151;">
+              ▸ 오일링 / 1차 청소 / 2차 청소 정산 내역 표시...
+            </div>
+          </div>
+        </div>
+        <ul class="check" style="margin-top:10px;">
+          <li>🔓 미마감 뱃지 표시</li>
+          <li>이 월 마감 버튼 활성</li>
+          <li>엑셀 저장 → 완료 후 마감 여부 팝업</li>
+          <li>데이터 수정·삭제 정상 가능</li>
+        </ul>
+      </div>
+
+      <!-- 마감 후 -->
+      <div>
+        <p style="font-size:13px; font-weight:700; margin-bottom:10px; color:#b91c1c;">🔒 마감 후 (마감됨 상태)</p>
+        <div class="mockup">
+          <div class="mock-topbar">
+            <div class="mock-dot" style="background:#ff5f57;"></div>
+            <div class="mock-dot" style="background:#febc2e;"></div>
+            <div class="mock-dot" style="background:#28c840;"></div>
+            <span style="margin-left:8px; font-size:11px;">월별 통합 정산</span>
+          </div>
+          <div class="mock-body">
+            <div class="mock-header">
+              <div class="mock-title">📊 월별 통합 정산</div>
+              <div class="mock-controls">
+                <select class="mock-select"><option>2026-06</option></select>
+                <span class="badge-closed">🔒 마감됨</span>
+                <button class="mock-btn btn-unclose">마감 취소</button>
+                <button class="mock-btn btn-excel">엑셀 저장</button>
+                <button class="mock-btn btn-print">청구서 출력</button>
+              </div>
+            </div>
+            <div class="mock-banner">
+              🔒 <strong>2026-06 은 마감 완료된 월입니다.</strong>&nbsp; 수정이 필요하면 [마감 취소] 버튼을 누르세요.
+            </div>
+            <div style="background:#f1f5f9; border-radius:8px; padding:10px 14px; font-size:12px; color:#374151;">
+              ▸ 오일링 / 1차 청소 / 2차 청소 정산 내역 표시...
+            </div>
+          </div>
+        </div>
+        <ul class="check" style="margin-top:10px;">
+          <li>🔒 마감됨 뱃지 표시</li>
+          <li>마감 취소 버튼 활성 (주황색)</li>
+          <li>빨간 안내 배너 표시</li>
+          <li class="x">데이터 수정·삭제 시도 → 서버 403 오류</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ⑤ 동작 흐름 -->
+  <div class="card">
+    <div class="card-title"><span class="num">5</span> 전체 동작 흐름</div>
+
+    <div class="flow">
+      <div class="fbox blue">
+        <strong>엑셀 저장 클릭</strong>
+        <span>MonthlyAnalysis2</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox">
+        <strong>엑셀 파일 생성·다운로드</strong>
+        <span>기존 로직 동일</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox blue">
+        <strong>마감 제안 팝업</strong>
+        <span>"이 월을 마감?"</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox green">
+        <strong>POST /api/monthly-closings</strong>
+        <span>{ month: 'YYYY-MM' }</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox green">
+        <strong>🔒 마감됨</strong>
+        <span>UI 즉시 갱신</span>
+      </div>
+    </div>
+
+    <div class="flow" style="margin-top:16px;">
+      <div class="fbox red">
+        <strong>마감 월 데이터 수정 시도</strong>
+        <span>앱 어디서든</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox red">
+        <strong>서버 403 차단</strong>
+        <span>rejectIfClosed()</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox">
+        <strong>마감 취소 버튼</strong>
+        <span>DELETE /api/monthly-closings</span>
+      </div>
+      <div class="farr">→</div>
+      <div class="fbox green">
+        <strong>🔓 잠금 해제</strong>
+        <span>수정 재개 가능</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ⑥ 구현 순서 -->
+  <div class="card">
+    <div class="card-title"><span class="num">6</span> 구현 순서</div>
+    <ol class="step-list">
+      <li>
+        <strong>MonthlyClosing.jsx 복원</strong><br>
+        <span style="color:#64748b; font-size:12px;">이전에 추가한 마감 UI(closedMonths, closingInProgress, doClose, doUnclose, 뱃지, 버튼, 배너) 제거 → 원래 상태로 되돌리기</span>
+      </li>
+      <li>
+        <strong>MonthlyAnalysis2.jsx — state / 함수 추가</strong><br>
+        <span style="color:#64748b; font-size:12px;">closedMonths, closingInProgress, isClosed, fetchClosedMonths, doClose, doUnclose 추가<br>useEffect에서 fetchClosedMonths 호출 (month 변경 시 갱신)</span>
+      </li>
+      <li>
+        <strong>MonthlyAnalysis2.jsx — handleExcelDownload 수정</strong><br>
+        <span style="color:#64748b; font-size:12px;">엑셀 저장 완료 후 미마감이면 마감 여부 팝업 → 확인 시 doClose() 호출</span>
+      </li>
+      <li>
+        <strong>MonthlyAnalysis2.jsx — 헤더 JSX 수정</strong><br>
+        <span style="color:#64748b; font-size:12px;">뱃지(🔒/🔓) + 마감·마감취소 버튼 + 마감 완료 배너 추가</span>
+      </li>
+    </ol>
+  </div>
+
+  <div style="text-align:center; font-size:11px; color:#94a3b8; margin-top:10px;">
+    Clearing 관리 시스템 · 월별 정산 마감 잠금 계획서 · 2026-06-29
+  </div>
+
+</div>
+</body>
+</html>

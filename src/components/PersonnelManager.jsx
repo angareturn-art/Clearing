@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = '/api';
+
+const MEAL_PRICE = 7500;
 
 const EMPTY_FORM = {
   date: dayjs().format('YYYY-MM-DD'),
-  work_hours: 8, ot_hours: 0, night_hours: 0, memo: ''
+  work_hours: 8, ot_hours: 0, night_hours: 0, memo: '',
+  breakfast: 1, lunch: 1,
 };
 
 export default function PersonnelManager({ currentSite }) {
@@ -70,7 +73,7 @@ export default function PersonnelManager({ currentSite }) {
   };
 
   const openEdit = (r) => {
-    setForm({ date: r.date, work_hours: r.work_hours, ot_hours: r.ot_hours, night_hours: r.night_hours, memo: r.memo || '' });
+    setForm({ date: r.date, work_hours: r.work_hours, ot_hours: r.ot_hours, night_hours: r.night_hours, memo: r.memo || '', breakfast: r.breakfast ?? 1, lunch: r.lunch ?? 1 });
     setEditId(r.id);
     setEditName(r.name);
     setSelectedNames([]);
@@ -80,23 +83,42 @@ export default function PersonnelManager({ currentSite }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    if (editId) {
-      await fetch(`${API_URL}/personnel/${editId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, name: editName })
-      });
-    } else {
-      if (selectedNames.length === 0) { setSaving(false); return alert('작업자를 선택하세요.'); }
-      for (const name of selectedNames) {
-        await fetch(`${API_URL}/personnel`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...form, name })
+    const token = localStorage.getItem('ba_token');
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Site-Id': currentSite?.id,
+      'Authorization': `Bearer ${token}`
+    };
+    try {
+      if (editId) {
+        const res = await fetch(`${API_URL}/personnel/${editId}`, {
+          method: 'PUT', headers,
+          body: JSON.stringify({ ...form, name: editName })
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || '수정 실패');
+        }
+      } else {
+        if (selectedNames.length === 0) { setSaving(false); return alert('작업자를 선택하세요.'); }
+        for (const name of selectedNames) {
+          const res = await fetch(`${API_URL}/personnel`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ ...form, name })
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || '저장 실패');
+          }
+        }
       }
+      resetForm();
+      fetchRecords();
+    } catch (err) {
+      alert('저장 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    resetForm();
-    fetchRecords();
   };
 
   const handleDelete = async (id) => {
@@ -145,24 +167,28 @@ export default function PersonnelManager({ currentSite }) {
 
   // ── 개인별 월간 통계 합산 ──
   const personStats = records.reduce((acc, r) => {
-    // 한 명씩 돌아가며 이번 달에 일한 총 시간과 공수를 합칩니다.
-    if (!acc[r.name]) acc[r.name] = { 
-      name: r.name, total_work: 0, total_ot: 0, total_night: 0, 
-      days: 0, ot_days: 0, night_days: 0, total_weight: 0 
+    if (!acc[r.name]) acc[r.name] = {
+      name: r.name, total_work: 0, total_ot: 0, total_night: 0,
+      days: 0, ot_days: 0, night_days: 0, total_weight: 0,
+      breakfast_count: 0, lunch_count: 0,
     };
     acc[r.name].total_work += r.work_hours || 0;
     acc[r.name].total_ot += r.ot_hours || 0;
     acc[r.name].total_night += r.night_hours || 0;
-    
     if (r.ot_hours > 0) acc[r.name].ot_days += 1;
     if (r.night_hours > 0) acc[r.name].night_days += 1;
-    
-    // 최종 공수 계산: (기본 8시간 기준 공수) + (위에서 계산한 추가 가중치)
     const weight = getWeight(r.ot_hours, r.night_hours);
     acc[r.name].total_weight += (r.work_hours / 8) + weight;
-    acc[r.name].days += 1; // 총 출근 일수
+    acc[r.name].days += 1;
+    acc[r.name].breakfast_count += (r.breakfast ?? 1);
+    acc[r.name].lunch_count    += (r.lunch ?? 1);
     return acc;
   }, {});
+
+  const mealSummary = records.reduce(
+    (acc, r) => { acc.breakfast += (r.breakfast ?? 1); acc.lunch += (r.lunch ?? 1); return acc; },
+    { breakfast: 0, lunch: 0 }
+  );
   const maxDays = Math.max(...Object.values(personStats).map(p => p.days), 1);
 
   const startOfMonth = dayjs(currentMonth).startOf('month');
@@ -219,7 +245,7 @@ export default function PersonnelManager({ currentSite }) {
             <table className="w-full text-left">
               <thead>
                 <tr>
-                  {['작업자', '근무일', '기본공수', 'OT / 야간 (건수/시간)', '가산공수', '단가 (일당)', '총액'].map(h => (
+                  {['작업자', '근무일', '기본공수', 'OT / 야간 (건수/시간)', '가산공수', '단가 (일당)', '인건비', '식사', '식비'].map(h => (
                     <th key={h} className="py-3 px-4 font-label text-[10px] uppercase tracking-widest text-outline">{h}</th>
                   ))}
                 </tr>
@@ -272,12 +298,48 @@ export default function PersonnelManager({ currentSite }) {
                       <td className="py-3 px-4 font-headline font-black text-primary text-base">
                         {totalAmount.toLocaleString()}원
                       </td>
+                      <td className="py-3 px-4 text-sm">
+                        <div className="space-y-0.5">
+                          {p.breakfast_count > 0 && <p className="font-label text-[11px] text-amber-700">아침 {p.breakfast_count}회</p>}
+                          {p.lunch_count > 0 && <p className="font-label text-[11px] text-orange-600">점심 {p.lunch_count}회</p>}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-headline font-black text-amber-700 text-base">
+                        {((p.breakfast_count + p.lunch_count) * MEAL_PRICE).toLocaleString()}원
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+
+          {/* 월간 식비 요약 카드 */}
+          {(mealSummary.breakfast + mealSummary.lunch) > 0 && (
+            <div className="mt-5 pt-4 border-t border-outline-variant/20">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="material-symbols-outlined text-amber-600 text-sm">restaurant</span>
+                <h4 className="font-label text-sm font-bold uppercase tracking-widest text-amber-700">{dayjs(currentMonth).format('MM월')} 식비 요약</h4>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-center">
+                  <p className="font-label text-[10px] text-amber-700 uppercase tracking-widest mb-1">아침</p>
+                  <p className="font-headline font-black text-amber-800 text-lg">{mealSummary.breakfast}회</p>
+                  <p className="font-label text-[11px] text-amber-600 mt-0.5">{(mealSummary.breakfast * MEAL_PRICE).toLocaleString()}원</p>
+                </div>
+                <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 text-center">
+                  <p className="font-label text-[10px] text-orange-700 uppercase tracking-widest mb-1">점심</p>
+                  <p className="font-headline font-black text-orange-800 text-lg">{mealSummary.lunch}회</p>
+                  <p className="font-label text-[11px] text-orange-600 mt-0.5">{(mealSummary.lunch * MEAL_PRICE).toLocaleString()}원</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-center">
+                  <p className="font-label text-[10px] text-red-700 uppercase tracking-widest mb-1">식비 합계</p>
+                  <p className="font-headline font-black text-red-800 text-lg">{(mealSummary.breakfast + mealSummary.lunch).toLocaleString()}끼</p>
+                  <p className="font-label text-[11px] text-red-600 mt-0.5">{((mealSummary.breakfast + mealSummary.lunch) * MEAL_PRICE).toLocaleString()}원</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -322,18 +384,31 @@ export default function PersonnelManager({ currentSite }) {
                     const personDayRecs = dayRecs.filter(r => r.name === name);
                     const hasOT = personDayRecs.some(r => r.ot_hours > 0);
                     const hasNight = personDayRecs.some(r => r.night_hours > 0);
+                    const hasBreakfast = personDayRecs.some(r => (r.breakfast ?? 1) === 1);
+                    const hasLunch = personDayRecs.some(r => (r.lunch ?? 1) === 1);
                     return (
                       <div key={name} className={`text-[9px] px-1.5 py-0.5 rounded truncate font-label font-bold ${avatarColor(name)} text-white flex items-center justify-between gap-1`}>
                         <span>{name}</span>
                         <div className="flex gap-0.5">
                           {hasOT && <span className="text-[7px] bg-white/20 px-0.5 rounded">OT</span>}
                           {hasNight && <span className="text-[7px] bg-white/20 px-0.5 rounded">야</span>}
+                          {hasBreakfast && <span className="text-[7px] bg-amber-300/40 px-0.5 rounded">아</span>}
+                          {hasLunch && <span className="text-[7px] bg-orange-300/40 px-0.5 rounded">점</span>}
                         </div>
                       </div>
                     );
                   })}
                   {names.length > 3 && <div className="text-[9px] text-outline font-label">+{names.length - 3}명</div>}
                 </div>
+                {/* 당일 식비 합산 */}
+                {(() => {
+                  const dayMeal = dayRecs.reduce((s, r) => s + (r.breakfast ?? 1) + (r.lunch ?? 1), 0);
+                  return dayMeal > 0 ? (
+                    <div className="text-[8px] text-amber-700 font-label mt-0.5">
+                      식비 {(dayMeal * MEAL_PRICE).toLocaleString()}원
+                    </div>
+                  ) : null;
+                })()}
               </div>
             );
           })}
@@ -371,10 +446,14 @@ export default function PersonnelManager({ currentSite }) {
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-headline font-black flex-shrink-0 ${avatarColor(r.name)}`}>{r.name[0]}</div>
                       <div>
                         <p className="font-label font-bold text-on-surface">{r.name}</p>
-                        <div className="flex gap-3 mt-0.5">
+                        <div className="flex flex-wrap gap-3 mt-0.5">
                           <span className="font-label text-[10px] text-outline">기본 {r.work_hours}h</span>
                           {r.ot_hours > 0 && <span className="font-label text-[10px] text-secondary">OT 1건 ({r.ot_hours}h)</span>}
                           {r.night_hours > 0 && <span className="font-label text-[10px] text-outline">야간 1건 ({r.night_hours}h)</span>}
+                          <span className="font-label text-[10px] text-amber-700">
+                            {(r.breakfast ?? 1) ? '아침 ✓' : '아침 —'}&nbsp;&nbsp;{(r.lunch ?? 1) ? '점심 ✓' : '점심 —'}
+                            &nbsp;·&nbsp;식비 {(((r.breakfast ?? 1) + (r.lunch ?? 1)) * MEAL_PRICE).toLocaleString()}원
+                          </span>
                           {r.memo && <span className="font-label text-[10px] text-outline italic">{r.memo}</span>}
                         </div>
                       </div>
@@ -405,7 +484,7 @@ export default function PersonnelManager({ currentSite }) {
         <table className="w-full text-left">
           <thead className="bg-surface-dim/20">
             <tr>
-              {['날짜', '작업자', '기본공수', 'OT / 야간', '메모', '관리'].map(h => (
+              {['날짜', '작업자', '기본공수', 'OT / 야간', '식비', '메모', '관리'].map(h => (
                 <th key={h} className="py-3 px-4 font-label text-[10px] uppercase tracking-widest text-outline">{h}</th>
               ))}
             </tr>
@@ -428,6 +507,13 @@ export default function PersonnelManager({ currentSite }) {
                     {r.ot_hours === 0 && r.night_hours === 0 && '-'}
                   </div>
                 </td>
+                <td className="py-3 px-4 font-body text-sm">
+                  <div className="flex gap-2">
+                    <span className={(r.breakfast ?? 1) ? 'text-amber-600 font-bold' : 'text-outline line-through'}>아</span>
+                    <span className={(r.lunch ?? 1) ? 'text-orange-600 font-bold' : 'text-outline line-through'}>점</span>
+                    <span className="text-amber-700 text-[11px]">{(((r.breakfast ?? 1) + (r.lunch ?? 1)) * MEAL_PRICE).toLocaleString()}원</span>
+                  </div>
+                </td>
                 <td className="py-3 px-4 font-body text-sm text-on-surface-variant">{r.memo || '-'}</td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -442,7 +528,7 @@ export default function PersonnelManager({ currentSite }) {
               </tr>
             ))}
             {records.length === 0 && (
-              <tr><td colSpan="7" className="py-12 text-center text-outline font-body">이번 달 공수 기록이 없습니다.</td></tr>
+              <tr><td colSpan="8" className="py-12 text-center text-outline font-body">이번 달 공수 기록이 없습니다.</td></tr>
             )}
           </tbody>
         </table>
@@ -578,6 +664,57 @@ export default function PersonnelManager({ currentSite }) {
                   <span className="font-headline font-black text-primary text-xl">
                     {(form.work_hours || 0) + (form.ot_hours || 0) + (form.night_hours || 0)}h
                   </span>
+                </div>
+
+                {/* 식비 */}
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-amber-700 mb-3">
+                    식비 <span className="text-outline font-normal normal-case tracking-normal">· 1끼 7,500원</span>
+                  </label>
+                  <div className="flex gap-3">
+                    {/* 아침 */}
+                    {(() => {
+                      const checked = !!form.breakfast;
+                      return (
+                        <button type="button"
+                          onClick={() => setForm(f => ({ ...f, breakfast: f.breakfast ? 0 : 1 }))}
+                          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-label font-bold text-sm transition-all
+                            ${checked ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-outline-variant/30 bg-surface text-outline'}`}>
+                          <span className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-amber-500 border-amber-500' : 'border-outline-variant'}`}>
+                            {checked && <span className="material-symbols-outlined text-white text-xs">check</span>}
+                          </span>
+                          아침
+                          <span className={`text-[10px] ${checked ? 'text-amber-500' : 'text-outline'}`}>7,500원</span>
+                        </button>
+                      );
+                    })()}
+                    {/* 점심 */}
+                    {(() => {
+                      const checked = !!form.lunch;
+                      return (
+                        <button type="button"
+                          onClick={() => setForm(f => ({ ...f, lunch: f.lunch ? 0 : 1 }))}
+                          className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-label font-bold text-sm transition-all
+                            ${checked ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-outline-variant/30 bg-surface text-outline'}`}>
+                          <span className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-orange-500 border-orange-500' : 'border-outline-variant'}`}>
+                            {checked && <span className="material-symbols-outlined text-white text-xs">check</span>}
+                          </span>
+                          점심
+                          <span className={`text-[10px] ${checked ? 'text-orange-500' : 'text-outline'}`}>7,500원</span>
+                        </button>
+                      );
+                    })()}
+                  </div>
+                  {(form.breakfast || form.lunch) ? (
+                    <p className="mt-2 text-right font-label text-xs text-amber-700 font-bold">
+                      {editId ? '식비' : `${selectedNames.length}명 식비`}:&nbsp;
+                      {editId
+                        ? ((form.breakfast + form.lunch) * MEAL_PRICE).toLocaleString()
+                        : (selectedNames.length * (form.breakfast + form.lunch) * MEAL_PRICE).toLocaleString()}원
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-right font-label text-xs text-outline">식비 없음</p>
+                  )}
                 </div>
 
                 {/* 메모 */}

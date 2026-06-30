@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
 
-const API = 'http://localhost:5000/api';
+const API = '/api';
 
 const fmt = (n) => (n || 0).toLocaleString();
 

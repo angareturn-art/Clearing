@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 
 const LoginPage = ({ onLogin }) => {
   const [mode, setMode] = useState('login'); // login | register | forgot
@@ -7,7 +7,7 @@ const LoginPage = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = '/api';
 
   const handleLogin = async (e) => {
     e.preventDefault();

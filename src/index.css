@@ -26,9 +26,13 @@ body {
     direction: ltr;
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+
+/* Dark sidebar scrollbar */
+.sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
 
 /* Stitch specific classes */
 .blueprint-grid {
