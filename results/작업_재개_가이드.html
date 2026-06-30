@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clearing 프로젝트 - 작업 재개 가이드</title>
+<style>
+  :root {
+    --navy: #0d1b3e;
+    --navy-2: #162244;
+    --green: #1b6b35;
+    --green-2: #2ea043;
+    --green-bg: #e8f5ee;
+    --gray-bg: #f4f6f8;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', 'Pretendard', 'Malgun Gothic', sans-serif;
+    background: var(--gray-bg);
+    color: #1f2937;
+    line-height: 1.65;
+  }
+  header {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+    color: #fff;
+    padding: 48px 24px 40px;
+    text-align: center;
+  }
+  header p.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 12px;
+    color: var(--green-2);
+    font-weight: 700;
+    margin: 0 0 10px;
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 30px;
+    font-weight: 800;
+  }
+  header p.sub {
+    margin: 0;
+    color: rgba(255,255,255,0.65);
+    font-size: 14px;
+  }
+  main {
+    max-width: 880px;
+    margin: -24px auto 60px;
+    padding: 0 20px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-bottom: 22px;
+    box-shadow: 0 2px 10px rgba(13,27,62,0.05);
+  }
+  .card h2 {
+    font-size: 19px;
+    margin: 0 0 6px;
+    color: var(--navy);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .card .desc {
+    color: #64748b;
+    font-size: 13.5px;
+    margin: 0 0 16px;
+  }
+  pre {
+    background: var(--navy);
+    color: #d6f5e3;
+    padding: 16px 18px;
+    border-radius: 10px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0 0 4px;
+  }
+  pre + p.hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin: 6px 0 0;
+  }
+  code.inline {
+    background: var(--green-bg);
+    color: var(--green);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin-top: 10px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--gray-bg);
+    color: var(--navy);
+    font-weight: 700;
+    font-size: 12.5px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .badge.green { background: var(--green-bg); color: var(--green); }
+  .badge.navy { background: #e5e9f5; color: var(--navy); }
+  ul.plain { margin: 6px 0 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 6px; font-size: 13.5px; }
+  .grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 640px) {
+    .grid2 { grid-template-columns: 1fr; }
+  }
+  .mini-card {
+    background: var(--gray-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .mini-card h3 {
+    margin: 0 0 6px;
+    font-size: 13.5px;
+    color: var(--navy);
+  }
+  .mini-card p {
+    margin: 0;
+    font-size: 12.5px;
+    color: #64748b;
+  }
+  footer {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12px;
+    padding: 30px 0 50px;
+  }
+  a { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">Clearing Project · Resume Guide</p>
+  <h1>다음에 이어서 작업하는 방법</h1>
+  <p class="sub">VS Code를 다시 열었을 때, 오늘 작업한 내용을 그대로 이어가기 위한 절차입니다</p>
+</header>
+
+<main>
+
+  <div class="card">
+    <h2><span class="step-num">✓</span> 오늘 한 일 요약</h2>
+    <p class="desc">이 세션에서 진행된 작업 내역입니다. GitHub의 <code class="inline">main</code> 브랜치에 이미 푸시되었습니다.</p>
+    <table>
+      <tr><th style="width:120px">분류</th><th>내용</th></tr>
+      <tr>
+        <td><span class="badge navy">백업</span></td>
+        <td>전체 데이터/파일 백업 (backups 폴더), Clearing v1.0.2 / clearing-mobile 별도 백업 생성</td>
+      </tr>
+      <tr>
+        <td><span class="badge navy">버전</span></td>
+        <td>Clearing package.json 0.0.0 → <b>1.2.0</b>, mobile package.json 1.0.0 → <b>1.1.0</b>, mobile app.json 1.3.0 → <b>1.4.0</b></td>
+      </tr>
+      <tr>
+        <td><span class="badge green">디자인</span></td>
+        <td>"3PL Performance Reporting Dashboard" 참고 이미지를 기반으로 네이비 사이드바 + 그린 KPI 카드 스타일 리디자인 계획 수립 (<code class="inline">results/대시보드_리디자인_계획.html</code>)</td>
+      </tr>
+      <tr>
+        <td><span class="badge green">구현</span></td>
+        <td>
+          tailwind.config.js 색상 토큰 변경, App.jsx 고정 사이드바 + 그룹 내비게이션 구조 개편,
+          Dashboard.jsx KPI 카드/동별 현황 테이블 신규 제작, MonthlyAnalysis2.jsx 헤더 영역 리스타일링
+        </td>
+      </tr>
+      <tr>
+        <td><span class="badge navy">GitHub</span></td>
+        <td>
+          기존 원격 저장소(<a href="https://github.com/angareturn-art/Clearing" target="_blank">angareturn-art/Clearing</a>)에 변경사항 커밋 &amp; 푸시 완료
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">1</span> VS Code 열고 최신 코드 받기</h2>
+    <p class="desc">새 PC이거나, 다른 곳에서 작업이 있었을 수도 있으니 항상 먼저 최신 상태로 맞춥니다.</p>
+    <pre>cd "c:\Antigravity\TEst\Clearing"
+git status
+git pull origin main</pre>
+    <p class="hint">현재 PC에서 계속 작업한다면 이미 최신 상태이므로 git pull은 변경 없음으로 끝납니다.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">2</span> 의존성 설치 (필요한 경우만)</h2>
+    <p class="desc"><code class="inline">node_modules</code>가 없거나 package.json이 바뀐 경우에만 실행하세요.</p>
+    <pre># 프론트엔드
+cd "c:\Antigravity\TEst\Clearing"
+npm install
+
+# 백엔드
+cd "c:\Antigravity\TEst\Clearing\server"
+npm install</pre>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">3</span> 개발 서버 실행</h2>
+    <p class="desc">가장 쉬운 방법은 루트의 <code class="inline">run.bat</code>을 더블클릭하는 것입니다. 백엔드(5000)와 프론트엔드(3000) 창이 각각 열립니다.</p>
+    <pre>:: 탐색기에서 더블클릭하거나, 터미널에서:
+c:\Antigravity\TEst\Clearing\run.bat</pre>
+    <p class="hint">개별 실행: run-backend.bat (server/index.js, DB: construction.db) / run-frontend.bat (vite dev, port 3000)</p>
+    <div class="grid2" style="margin-top:14px;">
+      <div class="mini-card">
+        <h3>🖥 PC에서 접속</h3>
+        <p>http://localhost:3000</p>
+      </div>
+      <div class="mini-card">
+        <h3>📱 같은 와이파이의 모바일에서 접속</h3>
+        <p>run.bat 실행 시 콘솔에 표시되는 사설 IP:3000 주소 사용</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">4</span> 지금 적용된 디자인 컨셉 기억하기</h2>
+    <p class="desc">새 작업을 추가할 때 아래 톤을 유지하면 통일감이 유지됩니다.</p>
+    <ul class="plain">
+      <li><b>Primary (네이비)</b> <code class="inline">#0d1b3e</code> — 사이드바, 헤더 강조, 마감 배지</li>
+      <li><b>Secondary (그린)</b> <code class="inline">#1b6b35</code> / 포인트 <code class="inline">#2ea043</code> — 활성 메뉴, 강조 버튼, 진행률 바</li>
+      <li>본문 배경은 옅은 회백색 <code class="inline">#f4f6f8</code>, 카드형 흰색 패널 위주</li>
+      <li>새 화면을 만들 때 <code class="inline">tailwind.config.js</code>의 <code class="inline">primary</code> / <code class="inline">secondary</code> 토큰 클래스를 그대로 사용하면 자동으로 테마가 적용됩니다</li>
+    </ul>
+    <p class="hint">자세한 내용은 <code class="inline">results/대시보드_리디자인_계획.html</code> 문서를 참고하세요.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">5</span> 작업 후 GitHub에 저장하기</h2>
+    <p class="desc">작업이 끝나거나 중간 저장이 필요할 때마다 반복하세요.</p>
+    <pre>cd "c:\Antigravity\TEst\Clearing"
+git add -A
+git commit -m "작업 내용 요약"
+git push origin main</pre>
+    <p class="hint">DB 백업 파일(server/construction_backup_*.db 등)은 .gitignore에 등록되어 있어 자동으로 제외됩니다. 정식 백업은 backup_version.ps1을 통해 backups/ 폴더에 별도로 보관하세요.</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="step-num">i</span> 프로젝트 / 저장소 정보</h2>
+    <table>
+      <tr><th style="width:140px">항목</th><th>내용</th></tr>
+      <tr><td>로컬 경로</td><td><code class="inline">c:\Antigravity\TEst\Clearing</code></td></tr>
+      <tr><td>GitHub 저장소</td><td><a href="https://github.com/angareturn-art/Clearing" target="_blank">github.com/angareturn-art/Clearing</a></td></tr>
+      <tr><td>기본 브랜치</td><td><code class="inline">main</code></td></tr>
+      <tr><td>현재 버전</td><td>package.json <code class="inline">1.2.0</code></td></tr>
+      <tr><td>프론트엔드</td><td>React 18 + Vite 5 + Tailwind CSS (포트 3000)</td></tr>
+      <tr><td>백엔드</td><td>Node.js + Express, SQLite (<code class="inline">server/construction.db</code>, 포트 5000)</td></tr>
+      <tr><td>모바일 앱</td><td><code class="inline">c:\Antigravity\TEst\clearing-mobile</code> (Expo / React Native, 별도 관리 — 필요 시 별도 저장소 연결 요청)</td></tr>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Clearing Project · Resume Guide · 이 문서는 작업 세션이 끝날 때마다 최신 내용으로 갱신하는 것을 권장합니다
+</footer>
+
+</body>
+</html>
