@@ -3,6 +3,212 @@ import dayjs from 'dayjs';
 
 const API_URL = '/api';
 
+// ── 기성금액 요약 패널 ──────────────────────────────────────────
+const ContractSummaryPanel = ({ data }) => {
+  if (!data) return null;
+  const { contract, total_units } = data;
+  const fmt = (n) => n?.toLocaleString() ?? '—';
+
+  return (
+    <div className="bg-primary rounded-2xl p-5 shadow-lg relative overflow-hidden">
+      {/* 배경 장식 */}
+      <div className="absolute right-0 top-0 w-64 h-full opacity-[0.04] pointer-events-none select-none">
+        <span className="material-symbols-outlined text-[180px] text-white absolute -right-4 top-1/2 -translate-y-1/2">paid</span>
+      </div>
+
+      <div className="relative z-10 flex flex-wrap items-center gap-5 lg:gap-8">
+        {/* 총 기성금액 */}
+        <div className="flex-shrink-0">
+          <p className="text-[9px] font-label uppercase tracking-[0.2em] text-white/40 mb-1">총 기성금액</p>
+          <p className="text-[32px] font-black text-white leading-none font-headline">
+            {fmt(contract?.total)}
+            <span className="text-sm font-normal text-white/40 ml-1">원</span>
+          </p>
+          <p className="text-[10px] font-label text-white/30 mt-1.5">전체 세대 {fmt(total_units)}세대 기준</p>
+        </div>
+
+        {/* 구분선 */}
+        <div className="hidden lg:block w-px self-stretch bg-white/10" />
+
+        {/* 구분별 세대·금액 */}
+        <div className="flex gap-5 flex-wrap">
+          {[
+            { label: '기름치칠', key: 'oiling', icon: 'format_paint' },
+            { label: '1차 청소', key: 'phase1', icon: 'cleaning_services' },
+            { label: '2차 청소', key: 'phase2', icon: 'done_all' },
+          ].map(({ label, key, icon }) => (
+            <div key={key} className="text-center min-w-[90px]">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <span className="material-symbols-outlined text-secondary text-[13px]">{icon}</span>
+                <p className="text-[9px] font-label uppercase tracking-widest text-white/40">{label}</p>
+              </div>
+              <p className="text-[18px] font-black text-white/90 font-headline leading-none">
+                {fmt(contract?.[key]?.units)}<span className="text-[10px] font-normal text-white/30 ml-0.5">세대</span>
+              </p>
+              <p className="text-[10px] font-label text-secondary/80 mt-0.5">{fmt(contract?.[key]?.amount)}원</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── 월별 기성 진행 막대그래프 ─────────────────────────────────────
+const MonthlyProgressChart = ({ data }) => {
+  if (!data) return null;
+  const { monthly_settled = [], contract, settled_total = 0, remaining = 0 } = data;
+  const contractTotal = contract?.total || 1;
+  const CHART_H = 96; // px
+
+  const fmt  = (n) => n?.toLocaleString() ?? '0';
+  const fmtK = (n) => {
+    if (!n) return '0원';
+    if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억원`;
+    if (n >= 10_000)      return `${Math.round(n / 10_000)}만원`;
+    return `${n.toLocaleString()}원`;
+  };
+
+  const settledPct = Math.min(Math.round((settled_total / contractTotal) * 100), 100);
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-secondary text-[18px]">stacked_bar_chart</span>
+          <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary">월별 기성 진행 현황</h3>
+        </div>
+        {/* 전체 진행률 바 */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="w-40 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full bg-secondary transition-all duration-700"
+              style={{ width: `${settledPct}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-label font-bold text-secondary">{settledPct}% 기수령</span>
+        </div>
+      </div>
+
+      <div className="p-5 flex items-stretch gap-5">
+
+        {/* 왼쪽: 남은 금액 */}
+        <div className="flex-shrink-0 w-[120px] bg-primary/5 border border-primary/10 rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1">
+          <p className="text-[8px] font-label uppercase tracking-[0.15em] text-gray-400">남은 기성</p>
+          <p className="text-[22px] font-black text-primary font-headline leading-none">{fmtK(remaining)}</p>
+          <p className="text-[9px] font-label text-gray-400">{fmt(remaining)}원</p>
+          <div className="mt-2 pt-2 border-t border-primary/10 w-full">
+            <p className="text-[8px] font-label text-gray-400">기수령</p>
+            <p className="text-[11px] font-bold text-secondary font-label">{fmtK(settled_total)}</p>
+          </div>
+        </div>
+
+        {/* 오른쪽: 막대 그래프 */}
+        <div className="flex-1 min-w-0">
+          {monthly_settled.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-sm text-gray-300 font-label">
+              마감된 월이 없습니다
+            </div>
+          ) : (
+            <>
+              {/* 목표 금액 레이블 */}
+              <div className="flex justify-end mb-1">
+                <span className="text-[9px] font-label text-gray-300 border-b border-dashed border-gray-200 pr-1">
+                  목표 {fmtK(contractTotal)}
+                </span>
+              </div>
+
+              {/* 막대 영역 */}
+              <div
+                className="flex items-end gap-3 border-b-2 border-gray-100 relative"
+                style={{ height: CHART_H }}
+              >
+                {/* 목표선 */}
+                <div className="absolute bottom-0 left-0 right-0 border-t-2 border-dashed border-secondary/20 pointer-events-none"
+                  style={{ bottom: CHART_H - 2 }} />
+
+                {monthly_settled.map((m, i) => {
+                  const barH    = Math.max(Math.round((m.total / contractTotal) * CHART_H), 4);
+                  const oilH    = m.total > 0 ? Math.round((m.oiling / m.total) * barH) : 0;
+                  const p1H     = m.total > 0 ? Math.round((m.phase1 / m.total) * barH) : 0;
+                  const p2H     = barH - oilH - p1H;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-0 group flex-1 min-w-[36px]">
+                      <div className="w-full flex flex-col items-center">
+                        {/* 금액 tooltip */}
+                        <div className="mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-label text-gray-400 whitespace-nowrap">
+                          {fmtK(m.total)}
+                        </div>
+                        {/* 적층 막대 */}
+                        <div className="w-full max-w-[40px] mx-auto flex flex-col" style={{ height: barH }}>
+                          {p2H > 0 && (
+                            <div
+                              className="w-full rounded-t-md bg-secondary"
+                              style={{ height: p2H }}
+                              title={`2차 청소: ${fmt(m.phase2)}원`}
+                            />
+                          )}
+                          {p1H > 0 && (
+                            <div
+                              className="w-full bg-green"
+                              style={{ height: p1H, backgroundColor: '#1b6b35' }}
+                              title={`1차 청소: ${fmt(m.phase1)}원`}
+                            />
+                          )}
+                          {oilH > 0 && (
+                            <div
+                              className={`w-full bg-primary ${p2H === 0 && p1H === 0 ? 'rounded-t-md' : ''}`}
+                              style={{ height: oilH }}
+                              title={`기름치칠: ${fmt(m.oiling)}원`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-[9px] font-label font-bold text-primary mt-1.5">
+                        {m.month.slice(5)}월
+                      </p>
+                      <p className="text-[8px] font-label text-gray-300">{fmtK(m.total)}</p>
+                    </div>
+                  );
+                })}
+
+                {/* 진행 중 월 (현재 월, 미마감) */}
+                <div className="flex flex-col items-center gap-0 flex-1 min-w-[36px] opacity-30">
+                  <div className="w-full flex flex-col items-center">
+                    <div className="mb-1 text-[9px] font-label text-gray-400 whitespace-nowrap opacity-0">-</div>
+                    <div className="w-full max-w-[40px] mx-auto flex flex-col items-center justify-end border-2 border-dashed border-gray-300 rounded-md"
+                      style={{ height: 20 }} />
+                  </div>
+                  <p className="text-[9px] font-label font-bold text-gray-400 mt-1.5">
+                    {dayjs().format('MM')}월~
+                  </p>
+                </div>
+              </div>
+
+              {/* 범례 */}
+              <div className="flex items-center gap-4 mt-3 flex-wrap">
+                {[
+                  { color: 'bg-primary',   label: '기름치칠' },
+                  { color: '',             label: '1차 청소', hex: '#1b6b35' },
+                  { color: 'bg-secondary', label: '2차 청소' },
+                ].map(({ color, label, hex }) => (
+                  <div key={label} className="flex items-center gap-1.5">
+                    <div
+                      className={`w-2.5 h-2.5 rounded-sm ${color}`}
+                      style={hex ? { backgroundColor: hex } : {}}
+                    />
+                    <span className="text-[10px] font-label text-gray-400">{label}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const KpiCard = ({ label, value, sub, pct, icon, accent = false }) => (
   <div className={`bg-white rounded-xl p-5 border shadow-sm flex flex-col gap-2 ${accent ? 'border-secondary/30' : 'border-gray-100'}`}>
     <div className="flex items-center justify-between">
@@ -29,8 +235,16 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
   const [weather, setWeather] = useState(null);
   const [loadingWeather, setLoadingWeather] = useState(true);
   const [showWeather, setShowWeather] = useState(() => localStorage.getItem('dashboard_show_weather') !== 'false');
+  const [contractSummary, setContractSummary] = useState(null);
 
   useEffect(() => { fetchAndSaveWeather(); }, [siteConfig?.latitude, siteConfig?.longitude]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/dashboard/contract-summary`)
+      .then(r => r.json())
+      .then(setContractSummary)
+      .catch(() => {});
+  }, []);
 
   const fetchAndSaveWeather = async () => {
     const lat = siteConfig?.latitude || '37.5665';
@@ -182,6 +396,12 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
           </button>
         </div>
       </div>
+
+      {/* ── 총 기성금액 패널 ── */}
+      <ContractSummaryPanel data={contractSummary} />
+
+      {/* ── 월별 기성 진행 막대그래프 ── */}
+      <MonthlyProgressChart data={contractSummary} />
 
       {/* ── KPI 카드 행 ── */}
       <div className={`grid gap-4 ${showWeather ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'}`}>

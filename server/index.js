@@ -1634,4 +1634,70 @@ app.get('/api/analysis/projection', (req, res) => {
   });
 });
 
+// ── 대시보드 기성금액 요약 API ──
+app.get('/api/dashboard/contract-summary', (req, res) => {
+  const siteId = req.siteId;
+  const UNIT_PRICE = 74000;
+
+  const buildings = db.prepare('SELECT * FROM buildings WHERE site_id=? ORDER BY id').all(siteId);
+  const houses    = db.prepare('SELECT * FROM houses WHERE site_id=?').all(siteId);
+
+  let totalUnits = 0, totalOilUnits = 0, totalCleanUnits = 0;
+  const byBuilding = [];
+
+  buildings.forEach(b => {
+    const bHouses = houses.filter(h => h.building_id === b.id);
+    let allU = 0, oilU = 0, cleanU = 0;
+    bHouses.forEach(h => {
+      allU  += h.floors;
+      if (h.floors >= b.oiling_base_floor)   oilU   += (h.floors - b.oiling_base_floor   + 1);
+      if (h.floors >= b.cleaning_base_floor) cleanU += (h.floors - b.cleaning_base_floor + 1);
+    });
+    totalUnits     += allU;
+    totalOilUnits  += oilU;
+    totalCleanUnits += cleanU;
+    byBuilding.push({
+      name:          b.name,
+      total_units:   allU,
+      oiling_units:  oilU,
+      clean_units:   cleanU,
+      oiling_amount: oilU   * UNIT_PRICE,
+      clean1_amount: cleanU * UNIT_PRICE,
+      clean2_amount: cleanU * UNIT_PRICE,
+      subtotal:      (oilU + cleanU * 2) * UNIT_PRICE,
+    });
+  });
+
+  const oilTotal   = totalOilUnits   * UNIT_PRICE;
+  const clean1Total = totalCleanUnits * UNIT_PRICE;
+  const clean2Total = totalCleanUnits * UNIT_PRICE;
+  const contractTotal = oilTotal + clean1Total + clean2Total;
+
+  // 마감된 월별 기성 집계
+  const closedMonths = db.prepare('SELECT month FROM monthly_closings WHERE site_id=? ORDER BY month').all(siteId);
+  const monthlySettled = closedMonths.map(({ month }) => {
+    const data = calculateMonthlyAnalysisData(siteId, month, UNIT_PRICE, UNIT_PRICE, 'split');
+    const phase1 = (data.cleaning.details || []).filter(d => d.phase === 1).reduce((s, d) => s + (d.amount || 0), 0);
+    const phase2 = (data.cleaning.details || []).filter(d => d.phase === 2).reduce((s, d) => s + (d.amount || 0), 0);
+    return { month, oiling: data.oiling.total, phase1, phase2, total: data.summary.income };
+  });
+
+  const settledTotal = monthlySettled.reduce((s, m) => s + m.total, 0);
+
+  res.json({
+    unit_price:  UNIT_PRICE,
+    total_units: totalUnits,
+    contract: {
+      oiling: { units: totalOilUnits,   amount: oilTotal   },
+      phase1: { units: totalCleanUnits, amount: clean1Total },
+      phase2: { units: totalCleanUnits, amount: clean2Total },
+      total:  contractTotal,
+    },
+    by_building:    byBuilding,
+    monthly_settled: monthlySettled,
+    settled_total:  settledTotal,
+    remaining:      contractTotal - settledTotal,
+  });
+});
+
 app.listen(PORT, () => console.log(`✅ Blueprint Authority Server running on port ${PORT}`));
