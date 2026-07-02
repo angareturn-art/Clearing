@@ -1673,9 +1673,15 @@ app.get('/api/dashboard/contract-summary', (req, res) => {
   const clean2Total = totalCleanUnits * UNIT_PRICE;
   const contractTotal = oilTotal + clean1Total + clean2Total;
 
-  // 마감된 월별 기성 집계
-  const closedMonths = db.prepare('SELECT month FROM monthly_closings WHERE site_id=? ORDER BY month').all(siteId);
+  // 마감된 월별 기성 집계 — 이번 달 미만(과거 마감 완료 월)만 집계
+  const thisMonth = dayjs().format('YYYY-MM');
+  const closedMonths = db.prepare(
+    'SELECT month FROM monthly_closings WHERE site_id=? AND month < ? ORDER BY month'
+  ).all(siteId, thisMonth);
+
   const monthlySettled = closedMonths.map(({ month }) => {
+    // calculateMonthlyAnalysisData 내부 쿼리가 strftime('%Y-%m', date)=month 로
+    // 해당 월 데이터만 정확히 필터링함. thisMonth < month 조건으로 이번 달은 이미 제외됨.
     const data = calculateMonthlyAnalysisData(siteId, month, UNIT_PRICE, UNIT_PRICE, 'split');
     const phase1 = (data.cleaning.details || []).filter(d => d.phase === 1).reduce((s, d) => s + (d.amount || 0), 0);
     const phase2 = (data.cleaning.details || []).filter(d => d.phase === 2).reduce((s, d) => s + (d.amount || 0), 0);
