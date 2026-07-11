@@ -34,7 +34,7 @@ npm install
 # 2. 백엔드 의존성 설치
 cd server && npm install && cd ..
 
-# 3. 백엔드 서버 실행 (포트 5000)
+# 3. 백엔드 서버 실행 (포트 5010)
 node server/index.js
 
 # 4. 프론트엔드 개발 서버 (포트 5173)

@@ -17,7 +17,7 @@ if not exist "node_modules" (
 
 echo [INFO] Starting frontend dev server...
 echo [INFO] PC:     http://localhost:3000
-echo [INFO] Proxy:  http://localhost:5000
+echo [INFO] Proxy:  http://localhost:5010
 echo.
 
 call npm run dev

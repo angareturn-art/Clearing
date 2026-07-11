@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 > nul
 
-title Backend Server - Port 5000
+title Backend Server - Port 5010
 
 cd /d %~dp0
 
@@ -24,7 +24,7 @@ if not exist "node_modules" (
 )
 
 echo [INFO] Starting backend server...
-echo [INFO] Port: 5000
+echo [INFO] Port: 5010
 echo [INFO] DB: construction.db
 echo.
 

@@ -49,7 +49,7 @@ export default function SyncManager({ currentUser }) {
           '  1. 터미널에서 아래 명령 실행:\n' +
           '     cd c:\\Antigravity\\TEst\\Clearing\\server\n' +
           '     node index.js\n\n' +
-          '  2. "Listening on port 5000" 메시지 확인 후 다시 시도'
+          '  2. "Listening on port 5010" 메시지 확인 후 다시 시도'
         );
       } else {
         setError(err.message);

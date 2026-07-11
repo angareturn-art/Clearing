@@ -15,7 +15,7 @@ echo   Clearing - Backend + Frontend Start
 echo ================================================
 echo.
 
-start "Backend (5000)" cmd /k "cd /d %~dp0 && call run-backend.bat"
+start "Backend (5010)" cmd /k "cd /d %~dp0 && call run-backend.bat"
 timeout /t 2 /nobreak > nul
 start "Frontend (3000)" cmd /k "cd /d %~dp0 && call run-frontend.bat"
 
