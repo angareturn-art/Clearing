@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import dayjs from 'dayjs';
 import 'dayjs/locale/ko';
+import { keepLatestPhase2 } from './utils/cleaningRecords';
 import ElevationView from './components/ElevationView';
 import CalendarView from './components/CalendarView';
 import MasterManager from './components/MasterManager';
@@ -87,6 +88,13 @@ function App() {
   const [viewMode, setViewMode] = useState('total');         // 배치도 보기 모드 (통합/기름칠/청소)
   const [buildings, setBuildings] = useState([]);             // 건물(동) 전체 정보
   const [summary, setSummary] = useState({ oiling: [], cleaning: [], unloading: [] }); // 각 공정별 집계 요약
+  // 완료 여부/기성 등 "현재 상태"를 판단하는 화면(대시보드·배치도·매트릭스)용으로,
+  // 세대당 2차 청소 중복 기록 중 가장 최근 것만 남긴 파생 데이터.
+  // 기록 이력을 그대로 보여줘야 하는 캘린더 등에는 원본 summary를 그대로 사용한다.
+  const filteredSummary = useMemo(
+    () => ({ ...summary, cleaning: keepLatestPhase2(summary.cleaning) }),
+    [summary]
+  );
   const [records, setRecords] = useState([]);                 // 상세 작업 기록 리스트
   const [filterDate, setFilterDate] = useState(dayjs().format('YYYY-MM-DD')); // 조회 날짜 필터
   const [filterBuilding, setFilterBuilding] = useState('');   // 조회 건물 필터
@@ -281,7 +289,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
     if (formData.record_id) {
       let pFloor = parseFloor(formData.floors?.[0] || formData.floor);
       
-      await fetch(`${API_URL}/records/${modalType}/${formData.record_id}`, {
+      await fetchWithSite(`${API_URL}/records/${modalType}/${formData.record_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, house_id: formData.house_ids?.[0], floor: pFloor })
@@ -297,7 +305,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
       const promises = targetHouses.flatMap(hId =>
         targetFloors.map(fStr => {
           let pFloor = parseFloor(fStr);
-          return fetch(`${API_URL}/records/${modalType}`, {
+          return fetchWithSite(`${API_URL}/records/${modalType}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...formData, house_id: hId, floor: pFloor })
@@ -313,7 +321,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
       }
       const promises = targetFloors.map(fStr => {
         let pFloor = parseFloor(fStr);
-        return fetch(`${API_URL}/records/${modalType}`, {
+        return fetchWithSite(`${API_URL}/records/${modalType}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...formData, floor: pFloor })
@@ -331,8 +339,8 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
     if (!formData.record_id) return;
     if (!window.confirm('정말 삭제하시겠습니까?')) return;
     try {
-      const res = await fetch(`${API_URL}/records/${modalType}/${formData.record_id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('서버 응답 오류');
+      const res = await fetchWithSite(`${API_URL}/records/${modalType}/${formData.record_id}`, { method: 'DELETE' });
+      if (!res || !res.ok) throw new Error('서버 응답 오류');
       alert('성공적으로 삭제되었습니다.');
       setShowModal(false);
       await fetchSummary();
@@ -345,8 +353,8 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
   const handleDelete = async (id) => {
     if (!window.confirm('정말 삭제하시겠습니까?')) return;
     try {
-      const res = await fetch(`${API_URL}/records/${modalType}/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('서버 응답 오류');
+      const res = await fetchWithSite(`${API_URL}/records/${modalType}/${id}`, { method: 'DELETE' });
+      if (!res || !res.ok) throw new Error('서버 응답 오류');
       alert('데이터가 성공적으로 삭제되었습니다.');
       await fetchRecords();
       await fetchSummary();
@@ -524,7 +532,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
 
           {/* 스크롤 가능한 메인 콘텐츠 */}
           <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-24 md:pb-8">
-        {activeTab === 'dashboard' && <Dashboard buildings={buildings} summary={summary} siteConfig={siteConfig} />}
+        {activeTab === 'dashboard' && <Dashboard buildings={buildings} summary={summary} filteredSummary={filteredSummary} siteConfig={siteConfig} currentSite={currentSite} />}
 
         {activeTab === 'elevation' && (
           <div>
@@ -545,24 +553,24 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                 </button>
               ))}
             </div>
-            <ElevationView buildings={buildings} summary={summary} onCellClick={handleCellClick} viewMode={viewMode} />
+            <ElevationView buildings={buildings} summary={filteredSummary} onCellClick={handleCellClick} viewMode={viewMode} />
           </div>
         )}
 
         {activeTab === 'visual_blueprint' && (
-          <AdvancedElevationView buildings={buildings} summary={summary} onCellClick={handleCellClick} />
+          <AdvancedElevationView buildings={buildings} summary={filteredSummary} onCellClick={handleCellClick} />
         )}
 
         {activeTab === 'unified' && (
-          <UnifiedMatrixView buildings={buildings} summary={summary} />
+          <UnifiedMatrixView buildings={buildings} summary={filteredSummary} />
         )}
 
         {activeTab === 'matrix' && (
-          <MatrixStatusView buildings={buildings} summary={summary} />
+          <MatrixStatusView buildings={buildings} summary={filteredSummary} />
         )}
 
         {activeTab === 'matrix2' && (
-          <MatrixStatusView2 buildings={buildings} summary={summary} />
+          <MatrixStatusView2 buildings={buildings} summary={filteredSummary} />
         )}
 
         {activeTab === 'settings' && (
@@ -581,7 +589,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
             onPrimaryTabsChange={handlePrimaryTabsChange}
           />
         )}
-        {activeTab === 'calendar' && <CalendarView summary={summary} />}
+        {activeTab === 'calendar' && <CalendarView summary={summary} currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'cost' && <CostManager currentSite={currentSite} />}
         {activeTab === 'personnel' && <PersonnelManager currentSite={currentSite} />}
         {activeTab === 'workers' && <WorkerManager currentSite={currentSite} />}
@@ -591,7 +599,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
         {activeTab === 'sign_approval' && <CleaningSignApproval currentSite={currentSite} />}
         {activeTab === 'cleaning_export' && <CleaningStatusExport currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'projection' && <RevenueProjection currentSite={currentSite} buildings={buildings} />}
-        {activeTab === 'emergency' && <EmergencyContacts />}
+        {activeTab === 'emergency' && <EmergencyContacts currentSite={currentSite} />}
         {activeTab === 'sync' && <SyncManager currentUser={currentUser} />}
 
         {activeTab === 'records' && (

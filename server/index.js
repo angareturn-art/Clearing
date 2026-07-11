@@ -11,7 +11,7 @@ const xlsx = require('xlsx');
 
 // ── 백엔드 서버 엔진 설정 ──
 const app = express();
-const PORT = 5000;
+const PORT = 5010;
 const JWT_SECRET = 'blueprint_authority_secret_2025';
 const DB_PATH = path.join(__dirname, 'construction.db');
 const ERROR_LOG_PATH = path.join(__dirname, '..', '..', 'Error.md');
@@ -242,6 +242,18 @@ db.exec(`
     closed_by TEXT,
     UNIQUE(site_id, month)
   );
+
+  CREATE TABLE IF NOT EXISTS schedule_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    memo TEXT,
+    date TEXT NOT NULL,
+    all_day INTEGER DEFAULT 1,
+    category TEXT DEFAULT 'general',
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
 `);
 
 // ── 식비 컬럼 마이그레이션 (breakfast, lunch) ──
@@ -268,16 +280,73 @@ db.exec(`
   }
 }
 
+// ── site_config 현장별 분리 마이그레이션 (기존엔 전역 공유 테이블이었음) ──
+(function migrateSiteConfigPerSite() {
+  const cols = db.prepare('PRAGMA table_info(site_config)').all();
+  if (!cols.some(c => c.name === 'site_id')) {
+    console.log('🔧 site_config 테이블을 현장별로 분리합니다...');
+    db.exec('DROP TRIGGER IF EXISTS trg_site_config_insert');
+    db.exec('DROP TRIGGER IF EXISTS trg_site_config_update');
+    db.exec('DROP TRIGGER IF EXISTS trg_site_config_delete');
+    db.exec(`
+      ALTER TABLE site_config RENAME TO site_config_old;
+      CREATE TABLE site_config (
+        site_id INTEGER NOT NULL DEFAULT 1,
+        key TEXT NOT NULL,
+        value TEXT,
+        updated_at TEXT DEFAULT (datetime('now','localtime')),
+        sync_flag TEXT DEFAULT 's',
+        PRIMARY KEY (site_id, key)
+      );
+      INSERT INTO site_config (site_id, key, value, updated_at, sync_flag)
+        SELECT 1, key, value, updated_at, COALESCE(sync_flag, 's') FROM site_config_old;
+      DROP TABLE site_config_old;
+    `);
+    console.log('✅ site_config: site_id 컬럼 추가, 기존 설정은 현장 1로 귀속 완료');
+  }
+})();
+
+// ── weather_records 현장별 분리 마이그레이션 (기존엔 date 단일 UNIQUE라 현장 간 날씨가 서로 덮어썼음) ──
+(function migrateWeatherRecordsPerSite() {
+  const cols = db.prepare('PRAGMA table_info(weather_records)').all();
+  if (!cols.some(c => c.name === 'site_id')) {
+    console.log('🔧 weather_records 테이블을 현장별로 분리합니다...');
+    db.exec('DROP TRIGGER IF EXISTS trg_weather_records_insert');
+    db.exec('DROP TRIGGER IF EXISTS trg_weather_records_update');
+    db.exec('DROP TRIGGER IF EXISTS trg_weather_records_delete');
+    db.exec(`
+      ALTER TABLE weather_records RENAME TO weather_records_old;
+      CREATE TABLE weather_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id INTEGER NOT NULL DEFAULT 1,
+        date TEXT,
+        temperature REAL,
+        wind_speed REAL,
+        precipitation REAL,
+        condition TEXT,
+        saved_at TEXT DEFAULT (datetime('now','localtime')),
+        sync_flag TEXT DEFAULT 's',
+        UNIQUE(site_id, date)
+      );
+      INSERT INTO weather_records (id, site_id, date, temperature, wind_speed, precipitation, condition, saved_at, sync_flag)
+        SELECT id, 1, date, temperature, wind_speed, precipitation, condition, saved_at, COALESCE(sync_flag, 's') FROM weather_records_old;
+      DROP TABLE weather_records_old;
+    `);
+    console.log('✅ weather_records: site_id 컬럼 추가 및 UNIQUE(site_id,date)로 재구성, 기존 기록은 현장 1로 귀속');
+  }
+})();
+
 // ── 기존 테이블 site_id 및 sync_flag 마이그레이션 ──
 const triggerTables = [
   'buildings', 'houses', 'oiling_records', 'cleaning_records', 'unloading_records',
   'cost_records', 'personnel_records', 'workers', 'worker_wage_history',
-  'users', 'site_config', 'weather_records', 'emergency_contacts', 'worker_monthly_prices'
+  'users', 'site_config', 'weather_records', 'emergency_contacts', 'worker_monthly_prices',
+  'monthly_closings', 'schedule_events'
 ];
 
 triggerTables.forEach(table => {
   const info = db.prepare(`PRAGMA table_info(${table})`).all();
-  if (table !== 'users' && table !== 'site_config' && table !== 'weather_records' && table !== 'emergency_contacts' && table !== 'worker_monthly_prices') {
+  if (table !== 'users' && table !== 'site_config' && table !== 'weather_records' && table !== 'worker_monthly_prices') {
     if (!info.some(c => c.name === 'site_id')) {
       try {
         db.exec(`ALTER TABLE ${table} ADD COLUMN site_id INTEGER DEFAULT 1`);
@@ -294,27 +363,30 @@ triggerTables.forEach(table => {
   }
 
   // 트리거 생성 로직 (sync_flag 자동 업데이트 및 삭제 추적)
-  const pk = table === 'site_config' ? 'key' : 'id';
+  const matchClause = table === 'site_config'
+    ? (row) => `site_id = ${row}.site_id AND key = ${row}.key`
+    : (row) => `id = ${row}.id`;
+  const recordIdExpr = table === 'site_config' ? "OLD.site_id || ':' || OLD.key" : 'OLD.id';
   try {
     db.exec(`
       CREATE TRIGGER IF NOT EXISTS trg_${table}_insert AFTER INSERT ON ${table}
       FOR EACH ROW
       WHEN NEW.sync_flag = 's'
       BEGIN
-        UPDATE ${table} SET sync_flag = 'f' WHERE ${pk} = NEW.${pk};
+        UPDATE ${table} SET sync_flag = 'f' WHERE ${matchClause('NEW')};
       END;
 
       CREATE TRIGGER IF NOT EXISTS trg_${table}_update AFTER UPDATE ON ${table}
       FOR EACH ROW
       WHEN NEW.sync_flag = OLD.sync_flag AND NEW.sync_flag != 'f'
       BEGIN
-        UPDATE ${table} SET sync_flag = 'f' WHERE ${pk} = NEW.${pk};
+        UPDATE ${table} SET sync_flag = 'f' WHERE ${matchClause('NEW')};
       END;
 
       CREATE TRIGGER IF NOT EXISTS trg_${table}_delete BEFORE DELETE ON ${table}
       FOR EACH ROW
       BEGIN
-        INSERT INTO deleted_logs (table_name, record_id, sync_flag) VALUES ('${table}', OLD.${pk}, 'f');
+        INSERT INTO deleted_logs (table_name, record_id, sync_flag) VALUES ('${table}', ${recordIdExpr}, 'f');
       END;
     `);
   } catch(e) { console.error('Failed to create triggers for', table, e.message); }
@@ -515,7 +587,7 @@ if (bCount.c === 0) {
 // ── 현장 설정 초기화 ──
 const scCount = db.prepare('SELECT COUNT(*) as c FROM site_config').get();
 if (scCount.c === 0) {
-  const insertSC = db.prepare('INSERT INTO site_config (key, value) VALUES (?,?)');
+  const insertSC = db.prepare('INSERT INTO site_config (site_id, key, value) VALUES (1,?,?)');
   insertSC.run('site_address', '');
   insertSC.run('start_date', '');
   insertSC.run('end_date', '');
@@ -610,10 +682,35 @@ app.post('/api/master/save-building', (req, res) => {
   db.prepare('UPDATE buildings SET name=?,address=?,basement_count=?,oiling_base_floor=?,cleaning_base_floor=?,unloading_base_floor=?,sync_flag=? WHERE id=? AND site_id=?')
     .run(name, address || '', basement_count || 0, oiling_base_floor || 0, cleaning_base_floor || 0, unloading_base_floor || 0, 'f', id, req.siteId);
 
-  const deleteH = db.prepare('DELETE FROM houses WHERE building_id=? AND site_id=?');
-  deleteH.run(id, req.siteId);
+  // 세대(house) 행을 매번 전부 삭제 후 재생성하면, 이미 저장된 청소/기름칠/하역
+  // 기록이 참조하던 house_id가 끊어져(orphan) 화면에 데이터가 사라지는 문제가 있었다.
+  // id가 있는 세대는 UPDATE로 보존하고, id가 없는(신규 추가된) 세대만 INSERT하며,
+  // 응답에 더 이상 포함되지 않은(삭제된) 세대만 DELETE 한다.
+  const existingIds = new Set(
+    db.prepare('SELECT id FROM houses WHERE building_id=? AND site_id=?').all(id, req.siteId).map(r => r.id)
+  );
+  const keepIds = new Set();
+
+  const updateH = db.prepare('UPDATE houses SET ho=?,line=?,floors=?,basement_label_b1=?,basement_label_b2=?,start_floor=?,sync_flag=? WHERE id=? AND site_id=?');
   const insertH = db.prepare('INSERT INTO houses (site_id,building_id,ho,line,floors,basement_label_b1,basement_label_b2,start_floor,sync_flag) VALUES (?,?,?,?,?,?,?,?,?)');
-  houses.forEach((h, i) => insertH.run(req.siteId, id, h.ho, h.line || i + 1, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2', h.start_floor || 1, 'f'));
+
+  houses.forEach((h, i) => {
+    const line = h.line || i + 1;
+    if (h.id && existingIds.has(h.id)) {
+      updateH.run(h.ho, line, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2', h.start_floor || 1, 'f', h.id, req.siteId);
+      keepIds.add(h.id);
+    } else {
+      const result = insertH.run(req.siteId, id, h.ho, line, h.floors, h.basement_label_b1 || 'B1', h.basement_label_b2 || 'B2', h.start_floor || 1, 'f');
+      keepIds.add(result.lastInsertRowid);
+    }
+  });
+
+  const removedIds = [...existingIds].filter(hid => !keepIds.has(hid));
+  if (removedIds.length > 0) {
+    const deleteOne = db.prepare('DELETE FROM houses WHERE id=? AND site_id=?');
+    removedIds.forEach(hid => deleteOne.run(hid, req.siteId));
+  }
+
   res.json({ success: true });
 });
 
@@ -625,7 +722,7 @@ app.post('/api/master/add-building', siteMiddleware, (req, res) => {
 
 // ── 현장 설정 API
 app.get('/api/site-config', (req, res) => {
-  const config = db.prepare('SELECT * FROM site_config').all();
+  const config = db.prepare('SELECT * FROM site_config WHERE site_id = ?').all(req.siteId);
   const result = config.reduce((acc, curr) => {
     acc[curr.key] = curr.value;
     return acc;
@@ -634,8 +731,9 @@ app.get('/api/site-config', (req, res) => {
 });
 
 app.post('/api/site-config', async (req, res) => {
-  const settings = req.body; 
-  
+  const settings = req.body;
+  const siteId = req.siteId;
+
   // 주소가 변경된 경우 지오코딩 시도
   if (settings.site_address) {
     try {
@@ -652,16 +750,16 @@ app.post('/api/site-config', async (req, res) => {
   }
 
   const upsertSC = db.prepare(`
-    INSERT INTO site_config (key, value) VALUES (?,?)
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now','localtime')
+    INSERT INTO site_config (site_id, key, value) VALUES (?,?,?)
+    ON CONFLICT(site_id, key) DO UPDATE SET value=excluded.value, updated_at=datetime('now','localtime')
   `);
-  
+
   const transaction = db.transaction((data) => {
     for (const [key, value] of Object.entries(data)) {
-      upsertSC.run(key, value);
+      upsertSC.run(siteId, key, value);
     }
   });
-  
+
   transaction(settings);
   res.json({ success: true });
 });
@@ -708,8 +806,8 @@ app.get('/api/status/summary', (req, res) => {
       FROM ${table} r
       JOIN buildings b ON b.id=r.building_id
       ${needsHouse ? 'LEFT JOIN houses h ON h.id=r.house_id' : ''}
-      WHERE 1=1`;
-    const params = [];
+      WHERE r.site_id = ?`;
+    const params = [req.siteId];
     if (date) { query += ' AND r.date=?'; params.push(date); }
     if (buildingId) { query += ' AND r.building_id=?'; params.push(buildingId); }
     query += ' ORDER BY r.created_at DESC';
@@ -738,22 +836,22 @@ app.get('/api/status/summary', (req, res) => {
     if (rejectIfClosed(res, req.siteId, d.date)) return;
     let stmt;
     if (type === 'oiling') {
-      stmt = db.prepare('UPDATE oiling_records SET building_id=?, house_id=?, floor=?, operator=?, date=?, time=?, remarks=?, sync_flag=? WHERE id=?');
-      stmt.run(d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks, 'f', req.params.id);
+      stmt = db.prepare('UPDATE oiling_records SET building_id=?, house_id=?, floor=?, operator=?, date=?, time=?, remarks=?, sync_flag=? WHERE id=? AND site_id=?');
+      stmt.run(d.building_id, null, d.floor, d.operator, d.date, d.time, d.remarks, 'f', req.params.id, req.siteId);
     } else if (type === 'cleaning') {
-      stmt = db.prepare('UPDATE cleaning_records SET building_id=?, house_id=?, floor=?, phase=?, progress=?, operator=?, date=?, time=?, remarks=?, photo=?, sync_flag=? WHERE id=?');
-      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null, 'f', req.params.id);
+      stmt = db.prepare('UPDATE cleaning_records SET building_id=?, house_id=?, floor=?, phase=?, progress=?, operator=?, date=?, time=?, remarks=?, photo=?, sync_flag=? WHERE id=? AND site_id=?');
+      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null, 'f', req.params.id, req.siteId);
     } else if (type === 'unloading') {
-      stmt = db.prepare('UPDATE unloading_records SET building_id=?, house_id=?, floor=?, phase=?, progress=?, operator=?, date=?, time=?, remarks=?, photo=?, sync_flag=? WHERE id=?');
-      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null, 'f', req.params.id);
+      stmt = db.prepare('UPDATE unloading_records SET building_id=?, house_id=?, floor=?, phase=?, progress=?, operator=?, date=?, time=?, remarks=?, photo=?, sync_flag=? WHERE id=? AND site_id=?');
+      stmt.run(d.building_id, d.house_id, d.floor, d.phase, d.progress, d.operator, d.date, d.time, d.remarks, d.photo || null, 'f', req.params.id, req.siteId);
     }
     res.json({ success: true });
   });
 
   app.delete(`/api/records/${type}/:id`, (req, res) => {
-    const existing = db.prepare(`SELECT date FROM ${table} WHERE id=?`).get(req.params.id);
+    const existing = db.prepare(`SELECT date FROM ${table} WHERE id=? AND site_id=?`).get(req.params.id, req.siteId);
     if (existing && rejectIfClosed(res, req.siteId, existing.date)) return;
-    db.prepare(`DELETE FROM ${table} WHERE id=?`).run(req.params.id);
+    db.prepare(`DELETE FROM ${table} WHERE id=? AND site_id=?`).run(req.params.id, req.siteId);
     res.json({ success: true });
   });
 });
@@ -764,8 +862,8 @@ app.patch('/api/records/cleaning/:id/sign', (req, res) => {
   if (!sign_date) return res.status(400).json({ error: 'sign_date 필수' });
   if (rejectIfClosed(res, req.siteId, sign_date)) return;
   try {
-    db.prepare('UPDATE cleaning_records SET confirmed=1, sign_date=?, sync_flag=? WHERE id=?')
-      .run(sign_date, 'f', req.params.id);
+    db.prepare('UPDATE cleaning_records SET confirmed=1, sign_date=?, sync_flag=? WHERE id=? AND site_id=?')
+      .run(sign_date, 'f', req.params.id, req.siteId);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -790,8 +888,8 @@ app.get('/api/records/cleaning/pending-sign', (req, res) => {
 // ── 비용 관리
 app.get('/api/costs', (req, res) => {
   const { month } = req.query;
-  let query = 'SELECT * FROM cost_records WHERE 1=1';
-  const params = [];
+  let query = 'SELECT * FROM cost_records WHERE site_id = ?';
+  const params = [req.siteId];
   if (month) { query += ' AND strftime(\'%Y-%m\', date) = ?'; params.push(month); }
   query += ' ORDER BY date DESC';
   res.json(db.prepare(query).all(...params));
@@ -806,14 +904,14 @@ app.post('/api/costs', (req, res) => {
 app.put('/api/costs/:id', (req, res) => {
   const { date, description, vendor, amount, notes, category } = req.body;
   if (rejectIfClosed(res, req.siteId, date)) return;
-  db.prepare('UPDATE cost_records SET date=?,description=?,vendor=?,amount=?,notes=?,category=?,sync_flag=? WHERE id=?').run(date, description, vendor, amount, notes, category, 'f', req.params.id);
+  db.prepare('UPDATE cost_records SET date=?,description=?,vendor=?,amount=?,notes=?,category=?,sync_flag=? WHERE id=? AND site_id=?').run(date, description, vendor, amount, notes, category, 'f', req.params.id, req.siteId);
   res.json({ success: true });
 });
 
 app.delete('/api/costs/:id', (req, res) => {
-  const existing = db.prepare('SELECT date FROM cost_records WHERE id=?').get(req.params.id);
+  const existing = db.prepare('SELECT date FROM cost_records WHERE id=? AND site_id=?').get(req.params.id, req.siteId);
   if (existing && rejectIfClosed(res, req.siteId, existing.date)) return;
-  db.prepare('DELETE FROM cost_records WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM cost_records WHERE id=? AND site_id=?').run(req.params.id, req.siteId);
   res.json({ success: true });
 });
 
@@ -843,15 +941,15 @@ app.put('/api/personnel/:id', (req, res) => {
   if (rejectIfClosed(res, req.siteId, date)) return;
   console.log('[PUT /api/personnel/:id] id:', req.params.id, 'body:', JSON.stringify(req.body));
   console.log('[PUT /api/personnel/:id] values:', { name, breakfast, lunch, bfSaved: breakfast ?? 1, lunchSaved: lunch ?? 1 });
-  db.prepare('UPDATE personnel_records SET name=?,date=?,work_hours=?,ot_hours=?,night_hours=?,memo=?,breakfast=?,lunch=?,sync_flag=? WHERE id=?')
-    .run(name, date, work_hours || 8, ot_hours || 0, night_hours || 0, memo || '', breakfast ?? 1, lunch ?? 1, 'f', req.params.id);
+  db.prepare('UPDATE personnel_records SET name=?,date=?,work_hours=?,ot_hours=?,night_hours=?,memo=?,breakfast=?,lunch=?,sync_flag=? WHERE id=? AND site_id=?')
+    .run(name, date, work_hours || 8, ot_hours || 0, night_hours || 0, memo || '', breakfast ?? 1, lunch ?? 1, 'f', req.params.id, req.siteId);
   res.json({ success: true });
 });
 
 app.delete('/api/personnel/:id', (req, res) => {
-  const existing = db.prepare('SELECT date FROM personnel_records WHERE id=?').get(req.params.id);
+  const existing = db.prepare('SELECT date FROM personnel_records WHERE id=? AND site_id=?').get(req.params.id, req.siteId);
   if (existing && rejectIfClosed(res, req.siteId, existing.date)) return;
-  db.prepare('DELETE FROM personnel_records WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM personnel_records WHERE id=? AND site_id=?').run(req.params.id, req.siteId);
   res.json({ success: true });
 });
 
@@ -859,33 +957,62 @@ app.delete('/api/personnel/:id', (req, res) => {
 app.get('/api/weather', (req, res) => {
   const { date } = req.query;
   if (date) {
-    const record = db.prepare('SELECT * FROM weather_records WHERE date=?').get(date);
+    const record = db.prepare('SELECT * FROM weather_records WHERE site_id=? AND date=?').get(req.siteId, date);
     return res.json(record || null);
   }
-  const records = db.prepare('SELECT * FROM weather_records ORDER BY date DESC LIMIT 90').all();
+  const records = db.prepare('SELECT * FROM weather_records WHERE site_id=? ORDER BY date DESC LIMIT 90').all(req.siteId);
   res.json(records);
 });
 
 app.post('/api/weather', (req, res) => {
   const { date, temperature, wind_speed, precipitation, condition } = req.body;
-  db.prepare('INSERT OR REPLACE INTO weather_records (date,temperature,wind_speed,precipitation,condition) VALUES (?,?,?,?,?)').run(date, temperature, wind_speed, precipitation, condition);
+  db.prepare('INSERT OR REPLACE INTO weather_records (site_id,date,temperature,wind_speed,precipitation,condition) VALUES (?,?,?,?,?,?)').run(req.siteId, date, temperature, wind_speed, precipitation, condition);
+  res.json({ success: true });
+});
+
+// ── 일정 (캘린더)
+app.get('/api/schedule-events', (req, res) => {
+  const { month } = req.query;
+  let query = 'SELECT * FROM schedule_events WHERE site_id = ?';
+  const params = [req.siteId];
+  if (month) { query += " AND strftime('%Y-%m', date) = ?"; params.push(month); }
+  query += ' ORDER BY date ASC';
+  res.json(db.prepare(query).all(...params));
+});
+
+app.post('/api/schedule-events', (req, res) => {
+  const { title, memo, date, all_day, category, created_by } = req.body;
+  const result = db.prepare('INSERT INTO schedule_events (site_id,title,memo,date,all_day,category,created_by,sync_flag) VALUES (?,?,?,?,?,?,?,?)')
+    .run(req.siteId, title, memo || '', date, all_day ?? 1, category || 'general', created_by || '', 'f');
+  res.json({ id: result.lastInsertRowid });
+});
+
+app.put('/api/schedule-events/:id', (req, res) => {
+  const { title, memo, date, all_day, category } = req.body;
+  db.prepare('UPDATE schedule_events SET title=?,memo=?,date=?,all_day=?,category=?,sync_flag=? WHERE id=? AND site_id=?')
+    .run(title, memo || '', date, all_day ?? 1, category || 'general', 'f', req.params.id, req.siteId);
+  res.json({ success: true });
+});
+
+app.delete('/api/schedule-events/:id', (req, res) => {
+  db.prepare('DELETE FROM schedule_events WHERE id=? AND site_id=?').run(req.params.id, req.siteId);
   res.json({ success: true });
 });
 
 // ── 비상 연락망
 app.get('/api/emergency', (req, res) => {
-  res.json(db.prepare('SELECT * FROM emergency_contacts ORDER BY sort_order').all());
+  res.json(db.prepare('SELECT * FROM emergency_contacts WHERE site_id=? ORDER BY sort_order').all(req.siteId));
 });
 
 app.post('/api/emergency', (req, res) => {
   const { category, name, phone, role } = req.body;
-  const maxOrder = db.prepare('SELECT MAX(sort_order) as m FROM emergency_contacts').get();
-  const result = db.prepare('INSERT INTO emergency_contacts (category,name,phone,role,sort_order) VALUES (?,?,?,?,?)').run(category, name, phone, role, (maxOrder.m || 0) + 1);
+  const maxOrder = db.prepare('SELECT MAX(sort_order) as m FROM emergency_contacts WHERE site_id=?').get(req.siteId);
+  const result = db.prepare('INSERT INTO emergency_contacts (site_id,category,name,phone,role,sort_order) VALUES (?,?,?,?,?,?)').run(req.siteId, category, name, phone, role, (maxOrder.m || 0) + 1);
   res.json({ id: result.lastInsertRowid });
 });
 
 app.delete('/api/emergency/:id', (req, res) => {
-  db.prepare('DELETE FROM emergency_contacts WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM emergency_contacts WHERE id=? AND site_id=?').run(req.params.id, req.siteId);
   res.json({ success: true });
 });
 
@@ -918,8 +1045,8 @@ app.post('/api/workers', (req, res) => {
 app.put('/api/workers/:id', (req, res) => {
   const { name, phone, role, team, specialty, status, memo, unit_price, price_date } = req.body;
   db.prepare(
-    'UPDATE workers SET name=?,phone=?,role=?,team=?,specialty=?,status=?,memo=?,sync_flag=? WHERE id=?'
-  ).run(name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '', 'f', req.params.id);
+    'UPDATE workers SET name=?,phone=?,role=?,team=?,specialty=?,status=?,memo=?,sync_flag=? WHERE id=? AND site_id=?'
+  ).run(name, phone || '', role || 'worker', team || '', specialty || '', status || 'active', memo || '', 'f', req.params.id, req.siteId);
   // 단가 자동 등록
   if (unit_price && parseInt(unit_price) > 0) {
     const eDate = price_date || dayjs().format('YYYY-MM-DD');
@@ -931,7 +1058,7 @@ app.put('/api/workers/:id', (req, res) => {
 });
 
 app.delete('/api/workers/:id', (req, res) => {
-  db.prepare('DELETE FROM workers WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM workers WHERE id=? AND site_id=?').run(req.params.id, req.siteId);
   res.json({ success: true });
 });
 
@@ -1311,6 +1438,21 @@ app.delete('/api/monthly-closings/:month', (req, res) => {
   res.json({ success: true });
 });
 
+// 같은 세대(house_id)+층에 2차 청소(phase=2) 기록이 여러 번(재청소/재서명) 있을 때,
+// 완료 여부·기성 계산에는 가장 나중에 입력된(id가 가장 큰) 기록 하나만 사용하고
+// 그보다 앞서 발생한 기록은 참고 이력으로만 남긴다. phase!=2 이거나 house_id가 없는
+// 행(구단위 일괄 입력 등)은 그대로 통과시킨다.
+function keepLatestPhase2(rows) {
+  const latestByKey = {};
+  const passthrough = [];
+  rows.forEach(r => {
+    if (r.phase !== 2 || r.house_id == null) { passthrough.push(r); return; }
+    const key = `${r.house_id}_${r.floor}`;
+    if (!latestByKey[key] || r.id > latestByKey[key].id) latestByKey[key] = r;
+  });
+  return [...passthrough, ...Object.values(latestByKey)];
+}
+
 // 동 이름 숫자 기준 정렬 유틸리티
 const sortByBuildingName = (list) => {
   return [...list].sort((a, b) => {
@@ -1376,36 +1518,43 @@ const calculateMonthlyAnalysisData = (siteId, month, oilingPrice, cleaningPrice,
   const oilingTotal = oilingListSorted.reduce((s, b) => s + b.billable_amount, 0);
 
   // ── 세대청소 쿼리
-  // 2차 청소(phase=2)는 서명일(sign_date) 기준으로 월 귀속, 1차는 청소일(date) 기준
-  let cleaningWhere = `strftime('%Y-%m', CASE WHEN c.phase=2 AND c.confirmed=1 AND c.sign_date IS NOT NULL THEN c.sign_date ELSE c.date END) = ?`;
-  const cleaningParams = [siteId, month];
+  // 재청소(2차) 중복 기록이 월별 SQL 필터를 사이에 두고 서로 다른 달의 조회 결과로
+  // 갈라지면, keepLatestPhase2를 각 달의 결과에 따로 적용해도 "이 달엔 예전 서명 기록만
+  // 보이고, 재청소(미서명) 기록은 다른 달로 걸러져 경쟁 상대가 없는" 상황이 생겨
+  // 낡은 서명이 계속 유효한 것처럼 집계될 수 있다. 그래서 사이트 전체 2차 청소 후보를
+  // 먼저 모두 가져와 keepLatestPhase2로 전역 중복 제거를 한 뒤, 그 결과에서 월별로 나눈다.
+  let cleaningBaseWhere = `c.site_id=?`;
+  const cleaningBaseParams = [siteId];
   if (periodMode === 'split') {
-    cleaningWhere += ` AND c.date >= ?`;
-    cleaningParams.push(CONTRACT_START_DATE);
+    cleaningBaseWhere += ` AND c.date >= ?`;
+    cleaningBaseParams.push(CONTRACT_START_DATE);
   }
-  const cleaningRows = db.prepare(`
-    SELECT c.building_id, c.floor, c.phase, c.house_id, c.date, c.confirmed, c.sign_date,
+  const allCleaningRows = keepLatestPhase2(db.prepare(`
+    SELECT c.id, c.building_id, c.floor, c.phase, c.house_id, c.date, c.confirmed, c.sign_date,
       b.name as bname, b.cleaning_base_floor,
       (SELECT COUNT(DISTINCT h2.id) FROM houses h2 WHERE h2.building_id=c.building_id AND h2.site_id=? AND h2.floors >= c.floor AND (h2.start_floor IS NULL OR h2.start_floor <= c.floor)) as total_units
     FROM cleaning_records c
     JOIN buildings b ON b.id=c.building_id
-    WHERE c.site_id=? AND ${cleaningWhere}
+    WHERE ${cleaningBaseWhere}
     ORDER BY b.name, c.floor, c.phase
-  `).all(siteId, ...cleaningParams);
+  `).all(siteId, ...cleaningBaseParams));
+
+  // 2차 청소는 서명일(sign_date) 기준, 1차는 청소일(date) 기준으로 월 귀속
+  const currentMonthAttr = (r) => ((r.phase === 2 && r.confirmed === 1 && r.sign_date) ? r.sign_date : r.date).slice(0, 7);
+  const cleaningRows = allCleaningRows.filter(r => currentMonthAttr(r) === month);
 
   // ── 이전 월에 이미 완료(정산)된 층/차수 집합 계산 ──
   const monthStart = month + '-01';
-  // 2차 청소는 서명일 기준으로 이전 월 판별, 1차 청소는 청소일 기준
-  const prevCleaningRows = db.prepare(`
-    SELECT c.building_id, c.floor, c.phase, c.house_id, c.date, c.confirmed, c.sign_date
-    FROM cleaning_records c
-    WHERE c.site_id=? AND c.floor > 0
-      AND (
-        (c.phase != 2 AND c.date >= ? AND c.date < ?)
-        OR (c.phase = 2 AND c.confirmed=1 AND c.sign_date IS NOT NULL AND c.sign_date >= ? AND c.sign_date < ?)
-        OR (c.phase = 2 AND c.confirmed=1 AND c.sign_date IS NULL AND c.date >= ? AND c.date < ?)
-      )
-  `).all(siteId, CONTRACT_START_DATE, monthStart, CONTRACT_START_DATE, monthStart, CONTRACT_START_DATE, monthStart);
+  // 2차 청소는 서명 완료(confirmed=1)된 것만 "이전에 완료"로 인정 — 서명일 기준으로 이전 월 판별, 1차는 청소일 기준
+  const prevCleaningRows = allCleaningRows.filter(r => {
+    if (r.floor <= 0) return false;
+    if (r.phase === 2) {
+      if (r.confirmed !== 1) return false;
+      const attr = r.sign_date || r.date;
+      return attr >= CONTRACT_START_DATE && attr < monthStart;
+    }
+    return r.date >= CONTRACT_START_DATE && r.date < monthStart;
+  });
 
   const prevFloorMap = {};
   prevCleaningRows.forEach(r => {
