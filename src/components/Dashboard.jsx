@@ -19,33 +19,33 @@ const ContractSummaryPanel = ({ data }) => {
       <div className="relative z-10 flex flex-wrap items-center gap-5 lg:gap-8">
         {/* 총 기성금액 */}
         <div className="flex-shrink-0">
-          <p className="text-[9px] font-label uppercase tracking-[0.2em] text-white/40 mb-1">총 기성금액</p>
-          <p className="text-[32px] font-black text-white leading-none font-headline">
+          <p className="text-[11px] font-label font-bold uppercase tracking-[0.15em] text-white/75 mb-1">총 기성금액</p>
+          <p className="text-[34px] font-black text-white leading-none font-headline">
             {fmt(contract?.total)}
-            <span className="text-sm font-normal text-white/40 ml-1">원</span>
+            <span className="text-base font-medium text-white/70 ml-1">원</span>
           </p>
-          <p className="text-[10px] font-label text-white/30 mt-1.5">전체 세대 {fmt(total_units)}세대 기준</p>
+          <p className="text-[12px] font-label font-medium text-white/65 mt-1.5">전체 세대 {fmt(total_units)}세대 기준</p>
         </div>
 
         {/* 구분선 */}
-        <div className="hidden lg:block w-px self-stretch bg-white/10" />
+        <div className="hidden lg:block w-px self-stretch bg-white/15" />
 
         {/* 구분별 세대·금액 */}
-        <div className="flex gap-5 flex-wrap">
+        <div className="flex gap-4 flex-wrap">
           {[
             { label: '기름치칠', key: 'oiling', icon: 'format_paint' },
             { label: '1차 청소', key: 'phase1', icon: 'cleaning_services' },
             { label: '2차 청소', key: 'phase2', icon: 'done_all' },
           ].map(({ label, key, icon }) => (
-            <div key={key} className="text-center min-w-[90px]">
+            <div key={key} className="text-center min-w-[100px] bg-white/10 rounded-xl px-3.5 py-2.5">
               <div className="flex items-center justify-center gap-1 mb-1">
-                <span className="material-symbols-outlined text-secondary text-[13px]">{icon}</span>
-                <p className="text-[9px] font-label uppercase tracking-widest text-white/40">{label}</p>
+                <span className="material-symbols-outlined text-white/80 text-sm">{icon}</span>
+                <p className="text-[11px] font-label font-bold uppercase tracking-wide text-white/80">{label}</p>
               </div>
-              <p className="text-[18px] font-black text-white/90 font-headline leading-none">
-                {fmt(contract?.[key]?.units)}<span className="text-[10px] font-normal text-white/30 ml-0.5">세대</span>
+              <p className="text-[20px] font-black text-white font-headline leading-none">
+                {fmt(contract?.[key]?.units)}<span className="text-[12px] font-medium text-white/65 ml-0.5">세대</span>
               </p>
-              <p className="text-[10px] font-label text-secondary/80 mt-0.5">{fmt(contract?.[key]?.amount)}원</p>
+              <p className="text-[12.5px] font-label font-bold text-amber-300 mt-1">{fmt(contract?.[key]?.amount)}원</p>
             </div>
           ))}
         </div>
@@ -86,34 +86,34 @@ const MonthlyProgressChart = ({ data }) => {
               style={{ width: `${settledPct}%` }}
             />
           </div>
-          <span className="text-[10px] font-label font-bold text-secondary">{settledPct}% 기수령</span>
+          <span className="text-[12px] font-label font-bold text-secondary bg-secondary/10 rounded-full px-2.5 py-1">{settledPct}% 기수령</span>
         </div>
       </div>
 
       <div className="p-5 flex items-stretch gap-5">
 
         {/* 왼쪽: 남은 금액 */}
-        <div className="flex-shrink-0 w-[120px] bg-primary/5 border border-primary/10 rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1">
-          <p className="text-[8px] font-label uppercase tracking-[0.15em] text-gray-400">남은 기성</p>
+        <div className="flex-shrink-0 w-[132px] bg-primary/5 border border-primary/10 rounded-xl p-4 flex flex-col items-center justify-center text-center gap-1">
+          <p className="text-[11px] font-label font-bold uppercase tracking-[0.1em] text-gray-500">남은 기성</p>
           <p className="text-[22px] font-black text-primary font-headline leading-none">{fmtK(remaining)}</p>
-          <p className="text-[9px] font-label text-gray-400">{fmt(remaining)}원</p>
+          <p className="text-[11px] font-label font-medium text-gray-500">{fmt(remaining)}원</p>
           <div className="mt-2 pt-2 border-t border-primary/10 w-full">
-            <p className="text-[8px] font-label text-gray-400">기수령</p>
-            <p className="text-[11px] font-bold text-secondary font-label">{fmtK(settled_total)}</p>
+            <p className="text-[11px] font-label font-medium text-gray-500">기수령</p>
+            <p className="text-[13px] font-bold text-secondary font-label">{fmtK(settled_total)}</p>
           </div>
         </div>
 
         {/* 오른쪽: 막대 그래프 */}
         <div className="flex-1 min-w-0">
           {monthly_settled.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-sm text-gray-300 font-label">
+            <div className="h-full flex items-center justify-center text-sm text-gray-400 font-label">
               마감된 월이 없습니다
             </div>
           ) : (
             <>
               {/* 목표 금액 레이블 */}
               <div className="flex justify-end mb-1">
-                <span className="text-[9px] font-label text-gray-300 border-b border-dashed border-gray-200 pr-1">
+                <span className="text-[11px] font-label font-medium text-gray-500 border-b border-dashed border-gray-300 pr-1">
                   목표 {fmtK(contractTotal)}
                 </span>
               </div>
@@ -136,7 +136,7 @@ const MonthlyProgressChart = ({ data }) => {
                     <div key={i} className="flex flex-col items-center gap-0 group flex-1 min-w-[36px]">
                       <div className="w-full flex flex-col items-center">
                         {/* 금액 tooltip */}
-                        <div className="mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-label text-gray-400 whitespace-nowrap">
+                        <div className="mb-1 opacity-0 group-hover:opacity-100 transition-opacity text-[11px] font-label font-bold text-gray-600 whitespace-nowrap">
                           {fmtK(m.total)}
                         </div>
                         {/* 적층 막대 */}
@@ -164,22 +164,22 @@ const MonthlyProgressChart = ({ data }) => {
                           )}
                         </div>
                       </div>
-                      <p className="text-[9px] font-label font-bold text-primary mt-1.5">
+                      <p className="text-[12px] font-label font-bold text-primary mt-1.5">
                         {m.month.slice(5)}월
                       </p>
-                      <p className="text-[8px] font-label text-gray-300">{fmtK(m.total)}</p>
+                      <p className="text-[11px] font-label font-medium text-gray-500">{fmtK(m.total)}</p>
                     </div>
                   );
                 })}
 
                 {/* 진행 중 월 (현재 월, 미마감) */}
-                <div className="flex flex-col items-center gap-0 flex-1 min-w-[36px] opacity-30">
+                <div className="flex flex-col items-center gap-0 flex-1 min-w-[36px] opacity-45">
                   <div className="w-full flex flex-col items-center">
-                    <div className="mb-1 text-[9px] font-label text-gray-400 whitespace-nowrap opacity-0">-</div>
-                    <div className="w-full max-w-[40px] mx-auto flex flex-col items-center justify-end border-2 border-dashed border-gray-300 rounded-md"
+                    <div className="mb-1 text-[11px] font-label text-gray-500 whitespace-nowrap opacity-0">-</div>
+                    <div className="w-full max-w-[40px] mx-auto flex flex-col items-center justify-end border-2 border-dashed border-gray-400 rounded-md"
                       style={{ height: 20 }} />
                   </div>
-                  <p className="text-[9px] font-label font-bold text-gray-400 mt-1.5">
+                  <p className="text-[12px] font-label font-bold text-gray-500 mt-1.5">
                     {dayjs().format('MM')}월~
                   </p>
                 </div>
@@ -197,7 +197,7 @@ const MonthlyProgressChart = ({ data }) => {
                       className={`w-2.5 h-2.5 rounded-sm ${color}`}
                       style={hex ? { backgroundColor: hex } : {}}
                     />
-                    <span className="text-[10px] font-label text-gray-400">{label}</span>
+                    <span className="text-[12px] font-label font-medium text-gray-600">{label}</span>
                   </div>
                 ))}
               </div>
@@ -212,8 +212,8 @@ const MonthlyProgressChart = ({ data }) => {
 const KpiCard = ({ label, value, sub, pct, icon, accent = false }) => (
   <div className={`bg-white rounded-xl p-5 border shadow-sm flex flex-col gap-2 ${accent ? 'border-secondary/30' : 'border-gray-100'}`}>
     <div className="flex items-center justify-between">
-      <p className="text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">{label}</p>
-      <span className={`material-symbols-outlined text-[18px] ${accent ? 'text-secondary' : 'text-gray-300'}`}>{icon}</span>
+      <p className="text-[12px] font-label font-bold uppercase tracking-wide text-gray-500">{label}</p>
+      <span className={`material-symbols-outlined text-[18px] ${accent ? 'text-secondary' : 'text-gray-400'}`}>{icon}</span>
     </div>
     <p className={`text-3xl font-black font-headline leading-none ${accent ? 'text-secondary' : 'text-primary'}`}>{value}</p>
     {pct !== undefined && (
@@ -224,29 +224,36 @@ const KpiCard = ({ label, value, sub, pct, icon, accent = false }) => (
             style={{ width: `${Math.min(pct, 100)}%` }}
           />
         </div>
-        <p className={`text-[10px] font-label font-bold mt-1 ${accent ? 'text-secondary' : 'text-gray-400'}`}>{pct}% 완료</p>
+        <p className={`text-[12px] font-label font-bold mt-1.5 ${accent ? 'text-secondary' : 'text-gray-500'}`}>{pct}% 완료</p>
       </div>
     )}
-    {sub && !pct && <p className="text-[11px] text-gray-400 font-label">{sub}</p>}
+    {sub && !pct && <p className="text-[12.5px] text-gray-500 font-label font-medium">{sub}</p>}
   </div>
 );
 
-const Dashboard = ({ buildings, summary, siteConfig }) => {
+const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSite }) => {
+  // filteredSummary: 2차 청소 중복 기록 중 최신 것만 남긴 파생 데이터. 완료 카운트/진행률처럼
+  // "현재 상태"를 계산하는 곳에 쓰고, 최근 작업 로그(recentActivity)에는 원본 summary를 그대로 쓴다.
+  const fs = filteredSummary || summary;
   const [weather, setWeather] = useState(null);
   const [loadingWeather, setLoadingWeather] = useState(true);
   const [showWeather, setShowWeather] = useState(() => localStorage.getItem('dashboard_show_weather') !== 'false');
   const [contractSummary, setContractSummary] = useState(null);
 
-  useEffect(() => { fetchAndSaveWeather(); }, [siteConfig?.latitude, siteConfig?.longitude]);
+  useEffect(() => { if (currentSite?.id) fetchAndSaveWeather(); }, [siteConfig?.latitude, siteConfig?.longitude, currentSite?.id]);
 
   useEffect(() => {
-    fetch(`${API_URL}/dashboard/contract-summary`)
+    if (!currentSite?.id) return;
+    fetch(`${API_URL}/dashboard/contract-summary`, {
+      headers: { 'X-Site-Id': currentSite.id }
+    })
       .then(r => r.json())
       .then(setContractSummary)
       .catch(() => {});
-  }, []);
+  }, [currentSite?.id]);
 
   const fetchAndSaveWeather = async () => {
+    if (!currentSite?.id) return;
     const lat = siteConfig?.latitude || '37.5665';
     const lon = siteConfig?.longitude || '126.9780';
     setLoadingWeather(true);
@@ -264,7 +271,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
       setWeather(wData);
       await fetch(`${API_URL}/weather`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Site-Id': currentSite?.id },
         body: JSON.stringify(wData)
       });
     } catch (e) {
@@ -295,10 +302,10 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
   // ── KPI 계산 ──
   const totalUnits = buildings.reduce((acc, b) =>
     acc + b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0), 0);
-  const oiledCount = new Set(summary.oiling?.map(r => `${r.building_id}-${r.floor}`)).size;
-  const phase1Count = summary.cleaning?.filter(r => r.phase === 1).length || 0;
-  const phase2Count = summary.cleaning?.filter(r => r.phase >= 2).length || 0;
-  const unloadedCount = summary.unloading?.filter(r => r.phase >= 1).length || 0;
+  const oiledCount = new Set(fs.oiling?.map(r => `${r.building_id}-${r.floor}`)).size;
+  const phase1Count = fs.cleaning?.filter(r => r.phase === 1).length || 0;
+  const phase2Count = fs.cleaning?.filter(r => r.phase >= 2).length || 0;
+  const unloadedCount = fs.unloading?.filter(r => r.phase >= 1).length || 0;
 
   // ── 동별 진행률 ──
   const buildingProgress = buildings.map(b => {
@@ -312,7 +319,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
       ...Array.from({ length: maxGround }).map((_, i) => i + 1)
     ];
     const oiledFloors = allOilFloors.filter(f =>
-      summary.oiling?.some(r => r.building_id === b.id && r.floor === f)
+      fs.oiling?.some(r => r.building_id === b.id && r.floor === f)
     ).length;
 
     const cleanedFloors = b.houses.reduce((a, h) => {
@@ -322,7 +329,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
         ...Array.from({ length: hFloors }).map((_, i) => i + 1)
       ];
       return a + allF.reduce((sum, f) => {
-        const relevant = summary.cleaning?.filter(r => r.house_id === h.id && r.floor === f) || [];
+        const relevant = fs.cleaning?.filter(r => r.house_id === h.id && r.floor === f) || [];
         const maxPhase = relevant.length > 0 ? Math.max(...relevant.map(r => r.phase)) : 0;
         return sum + (maxPhase >= 2 ? 1.0 : maxPhase >= 1 ? 0.5 : 0);
       }, 0);
@@ -331,13 +338,13 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
     const p1 = b.houses.reduce((a, h) => {
       const hFloors = Number(h.floors) || 0;
       const allF = [...Array.from({ length: bBasement }).map((_, i) => -(bBasement - i)), ...Array.from({ length: hFloors }).map((_, i) => i + 1)];
-      return a + allF.filter(f => summary.cleaning?.some(r => r.house_id === h.id && r.floor === f && r.phase === 1)).length;
+      return a + allF.filter(f => fs.cleaning?.some(r => r.house_id === h.id && r.floor === f && r.phase === 1)).length;
     }, 0);
 
     const p2 = b.houses.reduce((a, h) => {
       const hFloors = Number(h.floors) || 0;
       const allF = [...Array.from({ length: bBasement }).map((_, i) => -(bBasement - i)), ...Array.from({ length: hFloors }).map((_, i) => i + 1)];
-      return a + allF.filter(f => summary.cleaning?.some(r => r.house_id === h.id && r.floor === f && r.phase >= 2)).length;
+      return a + allF.filter(f => fs.cleaning?.some(r => r.house_id === h.id && r.floor === f && r.phase >= 2)).length;
     }, 0);
 
     return {
@@ -354,11 +361,22 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
   });
 
   // ── 최근 활동 ──
-  const recentActivity = [
+  // 같은 동/층/구분/날짜의 세대별 기록은 "3동 10층 1호, 2호, 3호"처럼 한 줄로 묶는다.
+  const recentActivityRaw = [
     ...(summary.cleaning?.slice(0, 3) || []).map(r => ({ ...r, type: '청소', color: 'bg-secondary' })),
     ...(summary.oiling?.slice(0, 2) || []).map(r => ({ ...r, type: '박리제', color: 'bg-primary' })),
     ...(summary.unloading?.slice(0, 2) || []).map(r => ({ ...r, type: '하역', color: 'bg-tertiary' })),
   ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 6);
+
+  const recentActivityGroups = {};
+  recentActivityRaw.forEach(r => {
+    const key = `${r.type}_${r.building_name}_${r.floor}_${r.date}`;
+    if (!recentActivityGroups[key]) recentActivityGroups[key] = { type: r.type, color: r.color, building_name: r.building_name, floor: r.floor, date: r.date, hos: [] };
+    if (r.ho) recentActivityGroups[key].hos.push(r.ho);
+  });
+  const hoNum = (s) => parseInt(s, 10) || 0;
+  const recentActivity = Object.values(recentActivityGroups)
+    .map(g => ({ ...g, hos: [...g.hos].sort((a, b) => hoNum(a) - hoNum(b)) }));
 
   const phase2Total = phase1Count + phase2Count;
 
@@ -368,13 +386,13 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
       {/* ── 페이지 헤드라인 ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-[10px] font-label font-bold uppercase tracking-[0.2em] text-secondary mb-1">
+          <p className="text-[12px] font-label font-bold uppercase tracking-[0.15em] text-secondary mb-1">
             청소 공정 관리 시스템
           </p>
           <h2 className="text-3xl font-black text-primary tracking-tight font-headline leading-tight">
             현장 공정 현황 리포트
           </h2>
-          <p className="text-sm text-gray-400 font-label mt-1">
+          <p className="text-sm text-gray-500 font-label font-medium mt-1">
             {dayjs().format('YYYY년 MM월 DD일 dddd')} · 실시간 현황
           </p>
         </div>
@@ -382,14 +400,14 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
           {showWeather && (
             <button
               onClick={fetchAndSaveWeather}
-              className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest text-gray-400 hover:text-secondary transition-colors"
+              className="flex items-center gap-1 text-[12px] font-label font-bold uppercase tracking-wide text-gray-500 hover:text-secondary transition-colors"
             >
               <span className="material-symbols-outlined text-sm">refresh</span>날씨 갱신
             </button>
           )}
           <button
             onClick={() => { const next = !showWeather; setShowWeather(next); localStorage.setItem('dashboard_show_weather', next); }}
-            className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest text-gray-400 hover:text-secondary transition-colors"
+            className="flex items-center gap-1 text-[12px] font-label font-bold uppercase tracking-wide text-gray-500 hover:text-secondary transition-colors"
           >
             <span className="material-symbols-outlined text-sm">{showWeather ? 'visibility_off' : 'visibility'}</span>
             {showWeather ? '날씨 숨기기' : '날씨 표시'}
@@ -412,23 +430,23 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
             <div className="absolute -right-3 -top-3 opacity-10">
               <span className="material-symbols-outlined text-[80px]">{getWeatherIcon(weather?.condition)}</span>
             </div>
-            <p className="text-[9px] font-label uppercase tracking-widest opacity-50 mb-2">오늘 날씨</p>
+            <p className="text-[11px] font-label font-bold uppercase tracking-wide opacity-70 mb-2">오늘 날씨</p>
             {loadingWeather ? (
               <div className="animate-pulse h-12 bg-white/10 rounded-lg" />
             ) : (
               <div className="relative z-10">
                 <div className="flex items-end gap-2 mb-2">
                   <span className="text-4xl font-black font-headline">{weather?.temperature}°</span>
-                  <span className="text-sm opacity-70 mb-1">{weather?.condition}</span>
+                  <span className="text-sm font-medium opacity-85 mb-1">{weather?.condition}</span>
                 </div>
                 <div className="flex gap-4">
                   <div className="flex items-center gap-1">
-                    <span className="material-symbols-outlined text-xs opacity-50">air</span>
-                    <span className="text-[10px] font-label opacity-70">{weather?.wind_speed} m/s</span>
+                    <span className="material-symbols-outlined text-xs opacity-70">air</span>
+                    <span className="text-[12px] font-label font-medium opacity-85">{weather?.wind_speed} m/s</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="material-symbols-outlined text-xs opacity-50">water_drop</span>
-                    <span className="text-[10px] font-label opacity-70">{weather?.precipitation} mm</span>
+                    <span className="material-symbols-outlined text-xs opacity-70">water_drop</span>
+                    <span className="text-[12px] font-label font-medium opacity-85">{weather?.precipitation} mm</span>
                   </div>
                 </div>
               </div>
@@ -470,7 +488,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
         <div className="xl:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
             <span className="material-symbols-outlined text-primary text-[18px]">bar_chart</span>
-            <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary">동별 공정 현황</h3>
+            <h3 className="font-label text-sm font-bold uppercase tracking-wide text-primary">동별 공정 현황</h3>
           </div>
 
           {buildingProgress.length === 0 ? (
@@ -480,12 +498,12 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="px-5 py-3 text-left text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">동</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">전체</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">1차</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">2차</th>
-                    <th className="px-4 py-3 text-right text-[10px] font-label font-bold uppercase tracking-widest text-gray-400">박리</th>
-                    <th className="px-4 py-3 text-[10px] font-label font-bold uppercase tracking-widest text-gray-400 min-w-[120px]">진행률</th>
+                    <th className="px-5 py-3 text-left text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">동</th>
+                    <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">전체</th>
+                    <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">1차</th>
+                    <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">2차</th>
+                    <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">박리</th>
+                    <th className="px-4 py-3 text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500 min-w-[120px]">진행률</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -497,13 +515,13 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
                         <td className="px-5 py-3.5 font-bold text-primary font-label">{bp.name}</td>
                         <td className="px-4 py-3.5 text-right text-gray-500 font-label">{bp.totalFloors}</td>
                         <td className="px-4 py-3.5 text-right font-label">
-                          <span className={`font-bold ${bp.p1 > 0 ? 'text-primary' : 'text-gray-300'}`}>{bp.p1}</span>
+                          <span className={`font-bold ${bp.p1 > 0 ? 'text-primary' : 'text-gray-400'}`}>{bp.p1}</span>
                         </td>
                         <td className="px-4 py-3.5 text-right font-label">
-                          <span className={`font-bold ${bp.p2 > 0 ? 'text-secondary' : 'text-gray-300'}`}>{bp.p2}</span>
+                          <span className={`font-bold ${bp.p2 > 0 ? 'text-secondary' : 'text-gray-400'}`}>{bp.p2}</span>
                         </td>
                         <td className="px-4 py-3.5 text-right font-label">
-                          <span className={`font-bold ${bp.oiledFloors > 0 ? 'text-gray-600' : 'text-gray-300'}`}>{bp.oiledFloors}</span>
+                          <span className={`font-bold ${bp.oiledFloors > 0 ? 'text-gray-600' : 'text-gray-400'}`}>{bp.oiledFloors}</span>
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
@@ -513,7 +531,7 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
                                 style={{ width: `${bp.cleanRate}%` }}
                               />
                             </div>
-                            <span className={`text-[10px] font-label font-bold w-8 text-right flex-shrink-0 ${isComplete ? 'text-secondary' : 'text-gray-400'}`}>
+                            <span className={`text-[12px] font-label font-bold w-9 text-right flex-shrink-0 ${isComplete ? 'text-secondary' : 'text-gray-500'}`}>
                               {bp.cleanRate}%
                             </span>
                           </div>
@@ -546,9 +564,9 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
               ].map((item, i) => (
                 <div key={i}>
                   <div className="flex justify-between items-center">
-                    <span className="text-[11px] font-label text-gray-400">{item.label}</span>
-                    <span className={`text-sm font-black font-label ${item.color || 'text-primary'}`}>
-                      {item.value.toLocaleString()} <span className="font-normal text-gray-400 text-[10px]">{item.unit}</span>
+                    <span className="text-[12.5px] font-label font-medium text-gray-500">{item.label}</span>
+                    <span className={`text-[15px] font-black font-label ${item.color || 'text-primary'}`}>
+                      {item.value.toLocaleString()} <span className="font-medium text-gray-500 text-[11.5px]">{item.unit}</span>
                     </span>
                   </div>
                   {i < 4 && <div className="h-px bg-gray-50 mt-3" />}
@@ -572,12 +590,12 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
                     <div key={i} className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${r.color}`} />
-                        <span className="text-[11px] font-label text-gray-700 leading-tight">
-                          {r.building_name} {r.ho || ''} {r.floor}층
-                          <span className="text-gray-400"> · {r.type}</span>
+                        <span className="text-[13px] font-label font-medium text-gray-700 leading-tight">
+                          {r.building_name} {r.floor}층{r.hos.length > 0 ? ` ${r.hos.join(', ')}` : ''}
+                          <span className="text-gray-500"> · {r.type}</span>
                         </span>
                       </div>
-                      <span className="text-[9px] font-label text-gray-300 flex-shrink-0">{r.date}</span>
+                      <span className="text-[11.5px] font-label font-medium text-gray-500 flex-shrink-0">{r.date}</span>
                     </div>
                   ))}
                 </div>
@@ -588,11 +606,11 @@ const Dashboard = ({ buildings, summary, siteConfig }) => {
           {/* 날씨 없을 때 정보 블록 */}
           {!showWeather && (
             <div className="bg-primary rounded-xl p-5 text-white">
-              <p className="text-[9px] font-label uppercase tracking-widest opacity-40 mb-2">오늘 날씨</p>
-              <p className="text-xs text-white/50 font-label">날씨 정보 비활성화됨</p>
+              <p className="text-[11px] font-label font-bold uppercase tracking-wide opacity-70 mb-2">오늘 날씨</p>
+              <p className="text-[12.5px] text-white/75 font-label font-medium">날씨 정보 비활성화됨</p>
               <button
                 onClick={() => { setShowWeather(true); localStorage.setItem('dashboard_show_weather', true); }}
-                className="mt-2 text-[10px] text-white/40 hover:text-white/80 font-label uppercase tracking-widest transition-colors"
+                className="mt-2 text-[12px] text-white/70 hover:text-white font-label font-bold uppercase tracking-wide transition-colors"
               >활성화</button>
             </div>
           )}

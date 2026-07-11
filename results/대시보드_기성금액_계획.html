@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>대시보드 기성금액 패널 - 설계 계획</title>
+<style>
+  :root {
+    --navy: #0d1b3e;
+    --navy-2: #162244;
+    --navy-3: #1e2e58;
+    --green: #1b6b35;
+    --green-2: #2ea043;
+    --green-bg: #e8f5ee;
+    --amber: #b45309;
+    --amber-bg: #fffbeb;
+    --gray-bg: #f4f6f8;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Segoe UI','Malgun Gothic',sans-serif; background:var(--gray-bg); color:#1f2937; line-height:1.6; }
+
+  header {
+    background:linear-gradient(135deg,var(--navy) 0%,var(--navy-3) 100%);
+    color:#fff; padding:44px 24px 36px; text-align:center;
+  }
+  header .eyebrow { text-transform:uppercase; letter-spacing:.2em; font-size:11px; color:var(--green-2); font-weight:700; margin:0 0 8px; }
+  header h1 { margin:0 0 8px; font-size:28px; font-weight:800; }
+  header .sub { margin:0; color:rgba(255,255,255,.6); font-size:13px; }
+
+  main { max-width:980px; margin:-20px auto 60px; padding:0 20px; }
+
+  /* section cards */
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:28px 30px; margin-bottom:22px; box-shadow:0 2px 10px rgba(13,27,62,.05); }
+  .card h2 { font-size:17px; color:var(--navy); font-weight:700; margin:0 0 4px; display:flex;align-items:center;gap:10px; }
+  .card .lead { color:#64748b; font-size:13.5px; margin:0 0 18px; }
+  .step-num { display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;font-size:13px;font-weight:800;flex-shrink:0; }
+
+  /* number highlight */
+  .big-num { font-size:30px; font-weight:800; color:var(--navy); letter-spacing:-.03em; }
+  .big-num span { font-size:14px; font-weight:600; color:#94a3b8; margin-left:4px; }
+
+  /* table */
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { background:var(--gray-bg); color:var(--navy); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  tr:last-child td { border-bottom:none; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; font-weight:600; }
+  td.total { font-weight:800; color:var(--navy); }
+  tr.sum-row td { background:var(--green-bg); font-weight:800; border-top:2px solid var(--green-2); }
+
+  /* badge */
+  .badge { display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700; }
+  .badge.green { background:var(--green-bg);color:var(--green); }
+  .badge.navy { background:#e5e9f5;color:var(--navy); }
+  .badge.amber { background:var(--amber-bg);color:var(--amber); }
+  .badge.gray { background:#f1f5f9;color:#475569; }
+
+  /* mock-up wireframe */
+  .wireframe {
+    background:#fff;border:2px solid var(--border);border-radius:12px;overflow:hidden;
+    font-family:monospace;font-size:12px;line-height:1.4;
+  }
+  .wf-bar { display:flex;align-items:stretch; }
+  .wf-sidebar { background:var(--navy);color:#fff;padding:12px;width:120px;flex-shrink:0;font-size:11px; }
+  .wf-content { flex:1;padding:0; }
+  .wf-topbar { background:#fff;border-bottom:1px solid var(--border);padding:8px 14px;font-size:11px;color:#94a3b8; }
+  .wf-main { padding:14px; }
+
+  /* KPI row mock */
+  .kpi-row { display:flex;gap:10px;margin-bottom:12px; }
+  .kpi-box { flex:1;border-radius:8px;padding:11px 14px;border:1px solid var(--border);background:#fff; }
+  .kpi-box.accent { border-color:#1b6b35;background:var(--green-bg); }
+  .kpi-box.total { border-color:var(--navy);background:#e5e9f5; }
+  .kpi-label { font-size:10px;color:#94a3b8;font-weight:600;margin-bottom:4px;font-family:sans-serif; }
+  .kpi-val { font-size:15px;font-weight:800;color:var(--navy);font-family:sans-serif; }
+  .kpi-val.green { color:var(--green); }
+  .kpi-val.big { font-size:20px;color:var(--navy); }
+
+  /* chart mock */
+  .chart-area { display:flex;gap:10px;align-items:stretch; }
+  .chart-left { background:#e5e9f5;border-radius:8px;padding:12px;min-width:110px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-family:sans-serif; }
+  .chart-left .big-remain { font-size:18px;font-weight:800;color:var(--navy); }
+  .chart-left .lbl { font-size:10px;color:#64748b;margin-top:2px; }
+  .chart-right { flex:1; }
+  .chart-bars { display:flex;gap:8px;align-items:flex-end;height:90px;border-bottom:2px solid var(--border);padding-bottom:4px; }
+  .bar-col { flex:1;display:flex;flex-direction:column;align-items:center;gap:0; }
+  .bar-seg { width:100%;border-radius:3px 3px 0 0; }
+  .bar-label { font-size:9px;color:#94a3b8;margin-top:4px;font-family:sans-serif; }
+  .bar-month { font-size:9px;color:var(--navy);font-weight:700;text-align:center;font-family:sans-serif; }
+
+  /* detail table in mock */
+  .detail-table { background:#f8fafc;border-radius:8px;padding:10px 12px;font-family:sans-serif; }
+  .detail-row { display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #e2e8f0; }
+  .detail-row:last-child { border:none;font-weight:700;color:var(--navy); }
+
+  code.inline { background:var(--green-bg);color:var(--green);padding:2px 7px;border-radius:5px;font-size:12.5px;font-weight:600; }
+  pre { background:var(--navy);color:#d6f5e3;padding:14px 16px;border-radius:10px;overflow-x:auto;font-size:12px;line-height:1.6;margin:0; }
+  ul.plain { margin:8px 0 0;padding-left:20px; }
+  ul.plain li { margin-bottom:5px;font-size:13.5px; }
+  .grid2 { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
+  @media(max-width:640px){.grid2{grid-template-columns:1fr;}.kpi-row{flex-wrap:wrap;}.chart-area{flex-direction:column;}}
+
+  .note { background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;font-size:13px;color:#92400e;margin-top:14px; }
+  .note strong { display:block;margin-bottom:2px; }
+
+  footer { text-align:center;color:#94a3b8;font-size:12px;padding:30px 0 50px; }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">Dashboard Redesign Plan · Phase 2</p>
+  <h1>기성금액 대시보드 설계 계획</h1>
+  <p class="sub">총 기성금액 · 대상 세대 · 월별 진행 막대그래프 · 남은 금액</p>
+</header>
+
+<main>
+
+<!-- ───────────────────────── 1. 현황 파악 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">①</span> 현재 데이터에서 계산된 실제 수치</h2>
+  <p class="lead">DB의 buildings.oiling_base_floor / cleaning_base_floor 값을 기준으로 계산한 대상 세대수입니다.</p>
+
+  <table>
+    <tr>
+      <th>동</th>
+      <th class="num">전체 세대</th>
+      <th class="num">기름치칠 대상</th>
+      <th class="num">청소 대상(1·2차)</th>
+      <th>기준층 (기름 / 청소)</th>
+      <th class="num">동별 기성 합계</th>
+    </tr>
+    <tr><td>1동</td><td class="num">74</td><td class="num">50</td><td class="num">62</td><td>7층 / 4층</td><td class="num">12,876,000원</td></tr>
+    <tr><td>2동</td><td class="num">92</td><td class="num">68</td><td class="num">80</td><td>7층 / 4층</td><td class="num">16,872,000원</td></tr>
+    <tr><td>3동</td><td class="num">96</td><td class="num">86</td><td class="num">86</td><td>3층 / 3층</td><td class="num">19,092,000원</td></tr>
+    <tr><td>4동</td><td class="num">60</td><td class="num">54</td><td class="num">54</td><td>3층 / 3층</td><td class="num">11,988,000원</td></tr>
+    <tr><td>5동</td><td class="num">60</td><td class="num">54</td><td class="num">54</td><td>3층 / 3층</td><td class="num">11,988,000원</td></tr>
+    <tr><td>6동</td><td class="num">32</td><td class="num">28</td><td class="num">28</td><td>3층 / 3층</td><td class="num">6,216,000원</td></tr>
+    <tr><td>7동</td><td class="num">55</td><td class="num">52</td><td class="num">52</td><td>2층 / 2층</td><td class="num">11,544,000원</td></tr>
+    <tr><td>8동</td><td class="num">50</td><td class="num">47</td><td class="num">47</td><td>2층 / 2층</td><td class="num">10,434,000원</td></tr>
+    <tr><td>9동</td><td class="num">80</td><td class="num">72</td><td class="num">72</td><td>3층 / 3층</td><td class="num">15,984,000원</td></tr>
+    <tr class="sum-row">
+      <td class="total">합계</td>
+      <td class="num total">599 세대</td>
+      <td class="num total">511 세대</td>
+      <td class="num total">535 세대</td>
+      <td>—</td>
+      <td class="num total">116,994,000원</td>
+    </tr>
+  </table>
+
+  <div class="note">
+    <strong>산출 공식</strong>
+    각 호(ho)에서 <code class="inline">floors &gt;= base_floor</code> 이면 대상 세대 = <code class="inline">floors − base_floor + 1</code> 세대<br>
+    (예) 1동 3호: 최고층 20층, 기름 기준층 7층 → 20−7+1 = <b>14세대</b> 대상
+  </div>
+</div>
+
+<!-- ───────────────────────── 2. 금액 구성 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">②</span> 총 기성금액 구성 (단가 적용)</h2>
+  <p class="lead">1세대당 기름치칠 74,000원 / 1차청소 74,000원 / 2차청소 74,000원 기준</p>
+
+  <div class="grid2">
+    <div>
+      <table>
+        <tr><th>작업 구분</th><th class="num">대상 세대</th><th class="num">단가</th><th class="num">금액</th></tr>
+        <tr>
+          <td>🛢 기름치칠 (갱폼 박리제)</td>
+          <td class="num">511 세대</td>
+          <td class="num">74,000원</td>
+          <td class="num">37,814,000원</td>
+        </tr>
+        <tr>
+          <td>🧹 1차 청소</td>
+          <td class="num">535 세대</td>
+          <td class="num">74,000원</td>
+          <td class="num">39,590,000원</td>
+        </tr>
+        <tr>
+          <td>✅ 2차 청소</td>
+          <td class="num">535 세대</td>
+          <td class="num">74,000원</td>
+          <td class="num">39,590,000원</td>
+        </tr>
+        <tr class="sum-row">
+          <td class="total">총 기성금액</td>
+          <td class="num total" colspan="2">—</td>
+          <td class="num total">116,994,000원</td>
+        </tr>
+      </table>
+    </div>
+    <div>
+      <div class="detail-table">
+        <div class="detail-row"><span>기름치칠 비중</span><span>32.3%</span></div>
+        <div class="detail-row"><span>1차청소 비중</span><span>33.8%</span></div>
+        <div class="detail-row"><span>2차청소 비중</span><span>33.8%</span></div>
+        <div class="detail-row"><span style="color:#1b6b35">총 기성금액</span><span style="color:#0d1b3e;font-size:16px">116,994,000원</span></div>
+      </div>
+      <div class="note" style="margin-top:10px;font-size:12px;">
+        기준층 이하 층은 기성 제외 (이미 DB oiling_base_floor / cleaning_base_floor 에 반영됨).<br>
+        단가 변경은 Settings 화면의 단가 설정에서 수정 → 즉시 재계산.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────── 3. 화면 구성 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">③</span> 새 대시보드 레이아웃 (목업)</h2>
+  <p class="lead">기존 KPI 카드 위에 기성금액 전용 상단 패널을 추가하고, 아래 두 번째 행에 월별 막대그래프를 배치합니다.</p>
+
+  <!-- Wireframe -->
+  <div class="wireframe">
+    <div class="wf-bar">
+      <!-- sidebar -->
+      <div class="wf-sidebar">
+        <div style="font-size:13px;font-weight:800;margin-bottom:12px;letter-spacing:.04em;">CLEARING</div>
+        <div style="opacity:.5;margin-bottom:4px;font-size:10px;">현황</div>
+        <div style="background:rgba(46,160,67,.25);border-radius:4px;padding:3px 6px;margin-bottom:2px;color:var(--green-2);">▶ 대시보드</div>
+        <div style="padding:3px 6px;opacity:.5;margin-bottom:2px;">공정 현황</div>
+        <div style="opacity:.5;margin-bottom:4px;font-size:10px;margin-top:6px;">공정기록</div>
+        <div style="padding:3px 6px;opacity:.5;">기록부</div>
+        <div style="padding:3px 6px;opacity:.5;">캘린더</div>
+        <div style="opacity:.5;margin-bottom:4px;font-size:10px;margin-top:6px;">정산</div>
+        <div style="padding:3px 6px;opacity:.5;">월별정산</div>
+        <div style="padding:3px 6px;opacity:.5;">마감</div>
+      </div>
+
+      <!-- main content -->
+      <div class="wf-content">
+        <div class="wf-topbar">공정 현황 리포트 &nbsp;·&nbsp; 2026-07-01 &nbsp;|&nbsp; [현장명]</div>
+        <div class="wf-main">
+
+          <!-- ══ 상단: 총 기성금액 패널 (NEW) ══ -->
+          <div style="background:var(--navy);border-radius:10px;padding:14px 18px;margin-bottom:12px;display:flex;align-items:center;gap:20px;">
+            <div style="flex:0 0 auto;">
+              <div style="font-size:10px;color:rgba(255,255,255,.5);font-family:sans-serif;letter-spacing:.1em;text-transform:uppercase;">총 기성금액</div>
+              <div style="font-size:22px;font-weight:800;color:#fff;font-family:sans-serif;">116,994,000<span style="font-size:12px;color:rgba(255,255,255,.5);">원</span></div>
+            </div>
+            <div style="width:1px;background:rgba(255,255,255,.15);align-self:stretch;"></div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:rgba(255,255,255,.5);font-family:sans-serif;">기름치칠</div>
+                <div style="font-size:13px;font-weight:700;color:#d6f5e3;font-family:sans-serif;">511세대</div>
+                <div style="font-size:10px;color:rgba(255,255,255,.4);font-family:sans-serif;">37,814,000원</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:rgba(255,255,255,.5);font-family:sans-serif;">1차 청소</div>
+                <div style="font-size:13px;font-weight:700;color:#d6f5e3;font-family:sans-serif;">535세대</div>
+                <div style="font-size:10px;color:rgba(255,255,255,.4);font-family:sans-serif;">39,590,000원</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="font-size:9px;color:rgba(255,255,255,.5);font-family:sans-serif;">2차 청소</div>
+                <div style="font-size:13px;font-weight:700;color:#d6f5e3;font-family:sans-serif;">535세대</div>
+                <div style="font-size:10px;color:rgba(255,255,255,.4);font-family:sans-serif;">39,590,000원</div>
+              </div>
+            </div>
+            <div style="margin-left:auto;text-align:right;">
+              <div style="font-size:9px;color:rgba(255,255,255,.5);font-family:sans-serif;">전체세대</div>
+              <div style="font-size:16px;font-weight:800;color:rgba(255,255,255,.8);font-family:sans-serif;">599</div>
+              <div style="font-size:9px;color:rgba(255,255,255,.4);font-family:sans-serif;">세대</div>
+            </div>
+          </div>
+
+          <!-- ══ 두 번째 행: 월별 막대그래프 (NEW) ══ -->
+          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:10px;font-family:sans-serif;">월별 기성 진행 현황</div>
+            <div class="chart-area">
+              <!-- 왼쪽: 남은 금액 -->
+              <div class="chart-left">
+                <div style="font-size:9px;color:#94a3b8;font-family:sans-serif;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">남은 금액</div>
+                <div class="big-remain">약<br>9,800만</div>
+                <div class="lbl">~98,000,000원</div>
+                <div style="margin-top:6px;font-size:9px;color:var(--green);font-family:sans-serif;">▼ 기수령: 1,900만</div>
+              </div>
+              <!-- 오른쪽: 막대그래프 -->
+              <div class="chart-right">
+                <div class="chart-bars">
+                  <!-- 4월 -->
+                  <div class="bar-col">
+                    <div style="display:flex;flex-direction:column;width:100%;align-items:center;">
+                      <div style="width:70%;display:flex;flex-direction:column;gap:1px;">
+                        <div class="bar-seg" style="height:12px;background:#0d1b3e;"></div>
+                        <div class="bar-seg" style="height:10px;background:#1b6b35;"></div>
+                        <div class="bar-seg" style="height:8px;background:#2ea043;"></div>
+                      </div>
+                    </div>
+                    <div class="bar-month">04월</div>
+                  </div>
+                  <!-- 5월 -->
+                  <div class="bar-col">
+                    <div style="display:flex;flex-direction:column;width:100%;align-items:center;">
+                      <div style="width:70%;display:flex;flex-direction:column;gap:1px;">
+                        <div class="bar-seg" style="height:18px;background:#0d1b3e;"></div>
+                        <div class="bar-seg" style="height:15px;background:#1b6b35;"></div>
+                        <div class="bar-seg" style="height:12px;background:#2ea043;"></div>
+                      </div>
+                    </div>
+                    <div class="bar-month">05월</div>
+                  </div>
+                  <!-- 6월 -->
+                  <div class="bar-col">
+                    <div style="display:flex;flex-direction:column;width:100%;align-items:center;">
+                      <div style="width:70%;display:flex;flex-direction:column;gap:1px;">
+                        <div class="bar-seg" style="height:14px;background:#0d1b3e;"></div>
+                        <div class="bar-seg" style="height:12px;background:#1b6b35;"></div>
+                        <div class="bar-seg" style="height:10px;background:#2ea043;"></div>
+                      </div>
+                    </div>
+                    <div class="bar-month">06월</div>
+                  </div>
+                  <!-- 7월 (진행중) -->
+                  <div class="bar-col" style="opacity:.4;">
+                    <div style="display:flex;flex-direction:column;width:100%;align-items:center;">
+                      <div style="width:70%;display:flex;flex-direction:column;gap:1px;">
+                        <div class="bar-seg" style="height:5px;background:#0d1b3e;border:1px dashed var(--navy);"></div>
+                      </div>
+                    </div>
+                    <div class="bar-month">07월~</div>
+                  </div>
+                  <!-- 목표선 공간 -->
+                  <div class="bar-col" style="flex:2;">
+                    <div style="height:80px;border-right:2px dashed var(--green);display:flex;align-items:center;justify-content:flex-end;padding-right:4px;">
+                      <div style="font-size:9px;color:var(--green);font-family:sans-serif;text-align:right;">목표<br>1.17억</div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 범례 -->
+                <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+                  <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#64748b;font-family:sans-serif;">
+                    <div style="width:10px;height:10px;background:#0d1b3e;border-radius:2px;"></div> 기름치칠
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#64748b;font-family:sans-serif;">
+                    <div style="width:10px;height:10px;background:#1b6b35;border-radius:2px;"></div> 1차 청소
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:#64748b;font-family:sans-serif;">
+                    <div style="width:10px;height:10px;background:#2ea043;border-radius:2px;"></div> 2차 청소
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ══ 기존 KPI 행 (공정 현황) ══ -->
+          <div class="kpi-row">
+            <div class="kpi-box">
+              <div class="kpi-label">총 작업 공간</div>
+              <div class="kpi-val">599세대</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">1차 청소</div>
+              <div class="kpi-val">284세대</div>
+            </div>
+            <div class="kpi-box accent">
+              <div class="kpi-label">2차 청소 완료</div>
+              <div class="kpi-val green">137세대</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">박리제 완료</div>
+              <div class="kpi-val">211세대</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────── 4. 구현 명세 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">④</span> 구현 명세 — 파일별 작업 내역</h2>
+  <p class="lead">기존 코드를 최소한으로 수정하면서 새 패널을 추가하는 방식입니다.</p>
+
+  <table>
+    <tr><th>파일</th><th>작업 내용</th><th>우선순위</th></tr>
+    <tr>
+      <td><code class="inline">server/index.js</code></td>
+      <td>
+        새 API 엔드포인트 추가:<br>
+        <code class="inline">GET /api/dashboard/contract-summary</code><br>
+        → buildings + houses 조회 → 동별 대상 세대 계산 → 단가(74000) 곱해 기성금액 반환<br>
+        → 월별 마감된 금액 합계도 함께 반환 (monthly_closings 기준)
+      </td>
+      <td><span class="badge green">신규 API</span></td>
+    </tr>
+    <tr>
+      <td><code class="inline">src/components/Dashboard.jsx</code></td>
+      <td>
+        ① 상단에 <b>ContractSummaryPanel</b> 컴포넌트 삽입<br>
+        &nbsp;&nbsp;• 네이비 배경 카드, 총 기성금액(크게), 기름치칠/1차/2차 세대·금액(작게)<br>
+        ② 바로 아래에 <b>MonthlyProgressChart</b> 컴포넌트 삽입<br>
+        &nbsp;&nbsp;• 왼쪽: 남은 금액(총 기성 − 마감 합계) 강조 표시<br>
+        &nbsp;&nbsp;• 오른쪽: 월별 적층 막대 그래프 (기름·1차·2차 구분 색상)<br>
+        &nbsp;&nbsp;• 목표선(총 기성금액) 점선 표시<br>
+        ③ 기존 KPI 카드 행은 아래에 그대로 유지
+      </td>
+      <td><span class="badge green">주요 수정</span></td>
+    </tr>
+    <tr>
+      <td><code class="inline">App.jsx</code> (fetch)</td>
+      <td>
+        <code class="inline">fetchContractSummary()</code> 함수 추가<br>
+        Dashboard 마운트 시 1회 호출, <code class="inline">contractSummary</code> state로 관리
+      </td>
+      <td><span class="badge navy">소규모 수정</span></td>
+    </tr>
+  </table>
+</div>
+
+<!-- ───────────────────────── 5. API 설계 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">⑤</span> 신규 API 응답 설계</h2>
+  <p class="lead"><code class="inline">GET /api/dashboard/contract-summary</code> 응답 예시</p>
+
+<pre>{
+  "unit_price": 74000,          // 세대당 단가 (하드코딩 → 추후 settings 연동 가능)
+  "total_units": 599,           // 전체 세대 수
+  "contract": {
+    "oiling": { "units": 511, "amount": 37814000 },
+    "phase1": { "units": 535, "amount": 39590000 },
+    "phase2": { "units": 535, "amount": 39590000 },
+    "total":  116994000          // 총 기성금액
+  },
+  "by_building": [
+    {
+      "name": "1동",
+      "total_units": 74,
+      "oiling_units": 50, "oiling_amount": 3700000,
+      "clean_units":  62, "clean_amount": 9176000,
+      "subtotal": 12876000
+    },
+    ...
+  ],
+  "monthly_settled": [           // 마감된 월별 기성 (월별정산 API에서 합산)
+    { "month": "2026-04", "oiling": 3500000, "phase1": 2900000, "phase2": 0, "total": 6400000 },
+    { "month": "2026-05", "oiling": 5200000, "phase1": 4800000, "phase2": 3200000, "total": 13200000 },
+    { "month": "2026-06", "oiling": 0,       "phase1": 0,       "phase2": 0,       "total": 0 }
+  ],
+  "settled_total": 19600000,    // 지금까지 마감된 합계
+  "remaining": 97394000         // 남은 기성금액 = total - settled_total
+}</pre>
+  <p style="font-size:12px;color:#94a3b8;margin-top:6px;">※ monthly_settled 금액은 실제 마감 처리된 월에 대해 /api/analysis/monthly 로 다시 계산해 집계합니다.</p>
+</div>
+
+<!-- ───────────────────────── 6. 막대 그래프 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">⑥</span> 월별 막대 그래프 상세 설계</h2>
+
+  <div class="grid2">
+    <div>
+      <p class="lead">구성 요소</p>
+      <ul class="plain">
+        <li><b>왼쪽 패널</b> — 남은 기성금액(남은 금액 = 총 기성 − 지금까지 마감 합계) 크게 표시, 소수점 없이 만원 단위로</li>
+        <li><b>막대 단위</b> — 마감 처리된 월(monthly_closings)마다 막대 1개</li>
+        <li><b>색상 구분</b> — 기름치칠 <span style="background:#0d1b3e;color:#fff;padding:0 6px;border-radius:3px;">navy</span> · 1차청소 <span style="background:#1b6b35;color:#fff;padding:0 6px;border-radius:3px;">green-dark</span> · 2차청소 <span style="background:#2ea043;color:#fff;padding:0 6px;border-radius:3px;">green-2</span></li>
+        <li><b>진행 중인 월</b> — 점선 윤곽 막대로 구분</li>
+        <li><b>목표선</b> — 총 기성금액 위치에 점선 수평선 + "목표 1.17억" 레이블</li>
+        <li><b>마감 확정 여부</b> — monthly_closings에 있는 월만 실선 막대 표시</li>
+      </ul>
+    </div>
+    <div>
+      <p class="lead">구현 방식 (라이브러리 없음)</p>
+      <ul class="plain">
+        <li>외부 차트 라이브러리 미사용 → Tailwind + CSS flex로 직접 구현</li>
+        <li>각 막대의 높이 = <code class="inline">(월 금액 / 총 기성금액) × 최대 높이px</code></li>
+        <li>각 세그먼트 높이 = <code class="inline">해당 구분 금액 비례</code></li>
+        <li>SVG 대신 순수 div 스택 → 반응형 간단, 인쇄 ok</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────── 7. 일정 ───────────────────────── -->
+<div class="card">
+  <h2><span class="step-num">⑦</span> 구현 순서 (단계별)</h2>
+  <table>
+    <tr><th>단계</th><th>작업 내용</th><th>예상 시간</th></tr>
+    <tr>
+      <td><span class="badge green">Phase 1</span></td>
+      <td>
+        <b>server/index.js</b> — <code class="inline">/api/dashboard/contract-summary</code> 신규 엔드포인트 작성<br>
+        buildings + houses 기준 세대 계산 + 월별 마감 집계 포함
+      </td>
+      <td>빠름</td>
+    </tr>
+    <tr>
+      <td><span class="badge green">Phase 2</span></td>
+      <td>
+        <b>Dashboard.jsx</b> — 상단 네이비 총 기성금액 패널 추가<br>
+        (총 기성, 기름치칠/1차/2차 세대수 + 금액, 전체 세대수)
+      </td>
+      <td>보통</td>
+    </tr>
+    <tr>
+      <td><span class="badge green">Phase 3</span></td>
+      <td>
+        <b>Dashboard.jsx</b> — 월별 진행 막대그래프 패널 추가<br>
+        남은 금액 왼쪽 표시 + CSS 적층 막대 + 범례 + 목표선
+      </td>
+      <td>보통</td>
+    </tr>
+    <tr>
+      <td><span class="badge navy">Phase 4</span></td>
+      <td>
+        동별 기성 미니 테이블 (기존 동별 공정현황 테이블에 기성금액 열 추가)<br>
+        설정 화면에서 단가 변경 시 실시간 재계산 연동 (선택)
+      </td>
+      <td>추가 사항</td>
+    </tr>
+  </table>
+</div>
+
+</main>
+
+<footer>
+  Clearing Project · Dashboard Contract Plan · 2026-07-01
+</footer>
+
+</body>
+</html>
