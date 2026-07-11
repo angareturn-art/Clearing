@@ -20,6 +20,14 @@ export default function SiteSelector({ onSelect }) {
       const res = await fetch(`${API_URL}/sites`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (res.status === 401) {
+        console.warn('Session expired. Hard resetting session...');
+        localStorage.removeItem('ba_token');
+        localStorage.removeItem('ba_user');
+        localStorage.removeItem('ba_current_site');
+        window.location.reload();
+        return;
+      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `서버 응답 오류 (${res.status})`);
