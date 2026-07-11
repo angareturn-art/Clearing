@@ -23,6 +23,9 @@ const TABS = [
   { id: 'unloading', label: '하역' },
 ];
 
+// 통합을 제외한, 다중 선택(토글) 가능한 공정 카테고리 (모바일 매트릭스와 동일한 상호작용)
+const CATEGORY_IDS = ['oiling', 'clean1', 'clean2', 'unloading'];
+
 const LEGEND = [
   C.oilLast, C.oilDone, C.c1Full,
   C.c2Unsigned, C.c2Signed,
@@ -34,9 +37,27 @@ const LEGEND = [
 const fmtDate = (d) => (d ? d.slice(5).replace('-', '/') : '');
 
 export default function UnifiedMatrixView({ buildings, summary }) {
-  const [activeTab,   setActiveTab]   = useState('unified');
+  // 빈 Set = 통합(전체 우선순위 표시). 하나 이상 담기면 그 카테고리들만 겹쳐서 표시(모바일 매트릭스와 동일).
+  const [selectedCats, setSelectedCats] = useState(new Set());
   const [displayMode, setDisplayMode] = useState('date');
   const scrollRef = useRef(null);
+
+  const isUnified = selectedCats.size === 0;
+  const effectiveCats = isUnified ? new Set(CATEGORY_IDS) : selectedCats;
+
+  // 통합을 누르면 다중 선택 해제. 카테고리 버튼은 토글(다시 누르면 해제), 전부 해제되면 자동으로 통합으로 복귀.
+  const handleTabPress = (id) => {
+    if (id === 'unified') {
+      setSelectedCats(new Set());
+      return;
+    }
+    setSelectedCats(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // ── 층별 세대수 정밀 계산 (start_floor 고려)
   const floorUnitsMap = useMemo(() => {
@@ -146,7 +167,7 @@ export default function UnifiedMatrixView({ buildings, summary }) {
     }
   }, [buildings, bldStats, maxFloor]);
 
-  const getCell = (b, floor, view) => {
+  const getCell = (b, floor, cats) => {
     const s = bldStats[b.id];
     if (!s) return { color: C.empty, txt: '' };
 
@@ -179,45 +200,33 @@ export default function UnifiedMatrixView({ buildings, summary }) {
     const hasAnyUL     = ulDoneCount > 0;
     const isULast      = floor === s.unloading && s.unloading > 0;
 
+    // 카테고리를 하나만 선택했을 때는 기존 단독 탭과 동일하게 그 공정 전용 기준층을 보여준다.
+    // 두 개 이상(통합 포함) 선택 시에는 청소 기준층(기성 기준선)을 보여준다.
+    const singleCat = cats.size === 1 ? [...cats][0] : null;
     const base =
-      view === 'oiling'    ? (b.oiling_base_floor    || 0) :
-      view === 'unloading' ? (b.unloading_base_floor || 0) :
+      singleCat === 'oiling'    ? (b.oiling_base_floor    || 0) :
+      singleCat === 'unloading' ? (b.unloading_base_floor || 0) :
       (b.cleaning_base_floor || 0);
     const isBaseline = floor === base + 1 && base > 0;
 
+    // 우선순위: 하역 > 2차서명 > 2차미서명 > 1차 > 기름칠 > 기타(선택된 카테고리만 대상으로 판정).
+    // 기타는 전용 토글 버튼이 없어 통합(전체 선택) 상태에서만 낮은 우선순위로 표시한다.
     let color    = C.empty;
     let dateVal  = '';
     let ratioTxt = '';  // 부분 완료 시 "X/Y" 형식
 
-    if (view === 'oiling') {
-      if (isOilLast)  { color = C.oilLast; dateVal = fmtDate(s.oilDate[floor]); }
-      else if (oiled) { color = C.oilDone; dateVal = fmtDate(s.oilDate[floor]); }
-    } else if (view === 'clean1') {
-      if      (hasAnyC1 && isC1Full) { color = C.c1Full; dateVal  = fmtDate(s.c1Date[floor]); }
-      else if (hasAnyC1)             { color = C.c1Full; ratioTxt = `${c1DoneCount}/${units}`; }
-    } else if (view === 'clean2') {
-      if      (hasAnyC2S && isC2SFull)       { color = C.c2Signed;   dateVal  = fmtDate(s.c2sDate[floor]); }
-      else if (hasAnyC2  && isC2Full)        { color = C.c2Unsigned; ratioTxt = `${c2sDoneCount}/${units}`; }
-      else if (hasAnyC2)                     { color = C.c2Unsigned; ratioTxt = `${c2DoneCount}/${units}`; }
-    } else if (view === 'unloading') {
-      if      (hasAnyUL && isULFull && isULast) { color = C.ulLast; dateVal  = fmtDate(s.ulDate[floor]); }
-      else if (hasAnyUL && isULFull)            { color = C.ulDone; dateVal  = fmtDate(s.ulDate[floor]); }
-      else if (hasAnyUL)                        { color = C.ulDone; ratioTxt = `${ulDoneCount}/${units}`; }
-    } else {
-      // 통합: 하역 > 2차서명 > 2차미서명 > 1차 > 기름칠 > 기타
-      if      (hasAnyUL  && isULFull  && isULast) { color = C.ulLast;     dateVal  = fmtDate(s.ulDate[floor]); }
-      else if (hasAnyUL  && isULFull)             { color = C.ulDone;     dateVal  = fmtDate(s.ulDate[floor]); }
-      else if (hasAnyUL)                          { color = C.ulDone;     ratioTxt = `${ulDoneCount}/${units}`; }
-      else if (hasAnyC2S && isC2SFull)            { color = C.c2Signed;   dateVal  = fmtDate(s.c2sDate[floor]); }
-      else if (hasAnyC2  && isC2Full)             { color = C.c2Unsigned; ratioTxt = `${c2sDoneCount}/${units}`; }
-      else if (hasAnyC2)                          { color = C.c2Unsigned; ratioTxt = `${c2DoneCount}/${units}`; }
-      else if (hasAnyC1  && isC1Full)             { color = C.c1Full;     dateVal  = fmtDate(s.c1Date[floor]); }
-      else if (hasAnyC1)                          { color = C.c1Full;     ratioTxt = `${c1DoneCount}/${units}`; }
-      else if (isOilLast)                         { color = C.oilLast;    dateVal  = fmtDate(s.oilDate[floor]); }
-      else if (oiled)                             { color = C.oilDone;    dateVal  = fmtDate(s.oilDate[floor]); }
-      else if (isETLast)                          { color = C.etcLast;    dateVal  = fmtDate(s.etDate[floor]); }
-      else if (hasET)                             { color = C.etcDone;    dateVal  = fmtDate(s.etDate[floor]); }
-    }
+    if      (cats.has('unloading') && hasAnyUL && isULFull && isULast) { color = C.ulLast;     dateVal  = fmtDate(s.ulDate[floor]); }
+    else if (cats.has('unloading') && hasAnyUL && isULFull)            { color = C.ulDone;     dateVal  = fmtDate(s.ulDate[floor]); }
+    else if (cats.has('unloading') && hasAnyUL)                        { color = C.ulDone;     ratioTxt = `${ulDoneCount}/${units}`; }
+    else if (cats.has('clean2')    && hasAnyC2S && isC2SFull)          { color = C.c2Signed;   dateVal  = fmtDate(s.c2sDate[floor]); }
+    else if (cats.has('clean2')    && hasAnyC2  && isC2Full)           { color = C.c2Unsigned; ratioTxt = `${c2sDoneCount}/${units}`; }
+    else if (cats.has('clean2')    && hasAnyC2)                        { color = C.c2Unsigned; ratioTxt = `${c2DoneCount}/${units}`; }
+    else if (cats.has('clean1')    && hasAnyC1  && isC1Full)           { color = C.c1Full;     dateVal  = fmtDate(s.c1Date[floor]); }
+    else if (cats.has('clean1')    && hasAnyC1)                        { color = C.c1Full;     ratioTxt = `${c1DoneCount}/${units}`; }
+    else if (cats.has('oiling')    && isOilLast)                       { color = C.oilLast;    dateVal  = fmtDate(s.oilDate[floor]); }
+    else if (cats.has('oiling')    && oiled)                           { color = C.oilDone;    dateVal  = fmtDate(s.oilDate[floor]); }
+    else if (isUnified && isETLast)                                    { color = C.etcLast;    dateVal  = fmtDate(s.etDate[floor]); }
+    else if (isUnified && hasET)                                       { color = C.etcDone;    dateVal  = fmtDate(s.etDate[floor]); }
 
     const isEmpty = color === C.empty;
     let txt = '';
@@ -269,21 +278,24 @@ export default function UnifiedMatrixView({ buildings, summary }) {
         </div>
       </div>
 
-      {/* ── 탭 ── */}
+      {/* ── 탭 (다중 선택 토글: 통합은 해제, 나머지는 여러 개 동시 선택 가능) ── */}
       <div className="flex border-b-2 border-outline-variant/20">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-all ${
-              activeTab === tab.id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {TABS.map(tab => {
+          const active = tab.id === 'unified' ? isUnified : selectedCats.has(tab.id);
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabPress(tab.id)}
+              className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider border-b-2 -mb-[2px] transition-all ${
+                active
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── 범례 ── */}
@@ -363,7 +375,7 @@ export default function UnifiedMatrixView({ buildings, summary }) {
 
                   {/* 공정 셀 */}
                   {buildings.map(b => {
-                    const { color, txt, isBaseline } = getCell(b, floor, activeTab);
+                    const { color, txt, isBaseline } = getCell(b, floor, effectiveCats);
                     const isEmpty = color === C.empty || color === C.above;
                     return (
                       <td key={b.id}
