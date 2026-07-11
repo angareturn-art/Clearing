@@ -123,17 +123,22 @@ export default function PersonnelManager({ currentSite }) {
 
   const handleDelete = async (id) => {
     if (!window.confirm('이 공수 기록을 삭제하시겠습니까?')) return;
-    await fetch(`${API_URL}/personnel/${id}`, { method: 'DELETE' });
+    const token = localStorage.getItem('ba_token');
+    await fetch(`${API_URL}/personnel/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-Site-Id': currentSite?.id, 'Authorization': `Bearer ${token}` }
+    });
     fetchRecords();
   };
 
   const handlePriceSave = async (worker_name, unit_price, effective_date) => {
     const token = localStorage.getItem('ba_token');
     await fetch(`${API_URL}/worker-prices`, {
-      method: 'POST', 
-      headers: { 
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        'Authorization': `Bearer ${token}`,
+        'X-Site-Id': currentSite?.id
       },
       body: JSON.stringify({ 
         worker_name, 

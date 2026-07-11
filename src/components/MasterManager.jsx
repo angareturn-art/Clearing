@@ -11,15 +11,26 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
   const [siteConfig, setSiteConfig] = useState({ site_address: '', start_date: '', end_date: '' });
   const [siteDetails, setSiteDetails] = useState({ name: '', primary_contractor: '', subcontractor: '' });
   const [menuVisibility, setMenuVisibility] = useState({});
-  
+
   // 사용자 관리 상태
   const [users, setUsers] = useState([]);
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'worker' });
 
+  // 현장 목록 및 신규 현장 등록 상태
+  const [allSites, setAllSites] = useState([]);
+  const [showNewSiteForm, setShowNewSiteForm] = useState(false);
+  const [creatingSite, setCreatingSite] = useState(false);
+  const [newSite, setNewSite] = useState({ name: '', primary_contractor: '', subcontractor: '', address: '', start_date: '', end_date: '' });
+
+  // 신규 동 추가 상태
+  const [newBuildingName, setNewBuildingName] = useState('');
+  const [addingBuilding, setAddingBuilding] = useState(false);
+
   useEffect(() => {
     fetchSiteConfig();
+    fetchAllSites();
     if (currentUser?.role === 'admin') fetchUsers();
-  }, [currentUser]);
+  }, [currentUser, currentSite?.id]);
 
   const buildMenuState = (config) => {
     const visibility = {};
@@ -123,6 +134,45 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
     }
   };
 
+  const fetchAllSites = async () => {
+    const token = localStorage.getItem('ba_token');
+    const res = await fetch(`${API_URL}/sites`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) setAllSites(await res.json());
+  };
+
+  const handleCreateSite = async (e) => {
+    e.preventDefault();
+    if (!newSite.name.trim()) { alert('현장명을 입력하세요.'); return; }
+    setCreatingSite(true);
+    try {
+      const token = localStorage.getItem('ba_token');
+      const res = await fetch(`${API_URL}/sites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newSite)
+      });
+      if (res.ok) {
+        alert('새 현장이 등록되었습니다. 목록에서 "이 현장으로 전환"을 눌러 이동하세요.');
+        setNewSite({ name: '', primary_contractor: '', subcontractor: '', address: '', start_date: '', end_date: '' });
+        setShowNewSiteForm(false);
+        fetchAllSites();
+      } else {
+        const err = await res.json();
+        alert(err.error || '현장 등록에 실패했습니다.');
+      }
+    } catch (err) {
+      alert('현장 등록 중 오류가 발생했습니다.');
+    } finally {
+      setCreatingSite(false);
+    }
+  };
+
+  const handleSwitchSite = (site) => {
+    onSiteUpdate(site);
+  };
+
   const handleCreateUser = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('ba_token');
@@ -152,6 +202,30 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
       }
     }
   }, [selectedBuildingId, buildings]);
+
+  const handleAddBuilding = async () => {
+    if (!newBuildingName.trim()) { alert('동 이름을 입력하세요.'); return; }
+    setAddingBuilding(true);
+    try {
+      const res = await fetch(`${API_URL}/master/add-building`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Site-Id': currentSite?.id },
+        body: JSON.stringify({ name: newBuildingName.trim() })
+      });
+      if (res.ok) {
+        const { id } = await res.json();
+        setNewBuildingName('');
+        onRefresh();
+        setSelectedBuildingId(id);
+      } else {
+        alert('동 추가에 실패했습니다.');
+      }
+    } catch (err) {
+      alert('동 추가 중 오류가 발생했습니다.');
+    } finally {
+      setAddingBuilding(false);
+    }
+  };
 
   const handleSave = async () => {
     setLoading(true);
@@ -225,6 +299,77 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
       </div>
 
       {activeSubTab === 'site' && (
+        <div className="space-y-8">
+        {currentUser?.role === 'admin' && (
+          <section className="bg-surface-container-lowest p-8 shadow-sm rounded-lg border border-outline-variant/10 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-secondary"></div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-secondary">domain_add</span>
+                <h3 className="font-label text-sm font-bold uppercase tracking-widest text-secondary">전체 현장 목록</h3>
+              </div>
+              <button
+                onClick={() => setShowNewSiteForm(v => !v)}
+                className="flex items-center gap-1.5 bg-secondary text-white px-4 py-2 rounded font-label font-bold text-xs uppercase tracking-widest shadow-sm hover:shadow-md transition-all"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                새 현장 추가
+              </button>
+            </div>
+
+            {showNewSiteForm && (
+              <form onSubmit={handleCreateSite} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 pb-8 border-b border-outline-variant/10">
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">현장명 *</label>
+                  <input required className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="text" value={newSite.name} onChange={(e) => setNewSite({ ...newSite, name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">원청사</label>
+                  <input className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="text" value={newSite.primary_contractor} onChange={(e) => setNewSite({ ...newSite, primary_contractor: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">하청사</label>
+                  <input className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="text" value={newSite.subcontractor} onChange={(e) => setNewSite({ ...newSite, subcontractor: e.target.value })} />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">주소</label>
+                  <input className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="text" value={newSite.address} onChange={(e) => setNewSite({ ...newSite, address: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">공사 시작일</label>
+                  <input className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="date" value={newSite.start_date} onChange={(e) => setNewSite({ ...newSite, start_date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">공사 종료일</label>
+                  <input className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2" type="date" value={newSite.end_date} onChange={(e) => setNewSite({ ...newSite, end_date: e.target.value })} />
+                </div>
+                <div className="md:col-span-3 flex justify-end gap-3">
+                  <button type="button" onClick={() => setShowNewSiteForm(false)} className="px-6 py-2.5 rounded font-label font-bold text-xs uppercase tracking-widest text-outline hover:bg-surface-container-high transition-all">취소</button>
+                  <button type="submit" disabled={creatingSite} className="bg-secondary text-white px-6 py-2.5 rounded font-label font-bold text-xs uppercase tracking-widest shadow-md disabled:opacity-50">{creatingSite ? '등록 중…' : '현장 등록'}</button>
+                </div>
+              </form>
+            )}
+
+            <div className="space-y-2">
+              {allSites.map(s => (
+                <div key={s.id} className={`flex items-center justify-between p-4 rounded-lg border ${s.id === currentSite?.id ? 'border-primary bg-primary/5' : 'border-outline-variant/10 bg-surface-container-low'}`}>
+                  <div>
+                    <div className="font-bold text-on-surface flex items-center gap-2">
+                      {s.name}
+                      {s.id === currentSite?.id && <span className="text-[9px] font-label font-black uppercase tracking-widest text-primary bg-primary/10 px-2 py-0.5 rounded-full">현재 현장</span>}
+                    </div>
+                    <div className="text-xs text-outline mt-0.5">{s.primary_contractor || '원청 미지정'} · {s.subcontractor || '하청 미지정'}</div>
+                  </div>
+                  {s.id !== currentSite?.id && (
+                    <button onClick={() => handleSwitchSite(s)} className="text-xs font-label font-bold text-primary uppercase tracking-widest hover:underline flex-shrink-0">이 현장으로 전환</button>
+                  )}
+                </div>
+              ))}
+              {allSites.length === 0 && <p className="text-sm text-outline text-center py-6">등록된 현장이 없습니다.</p>}
+            </div>
+          </section>
+        )}
+
         <section className="bg-surface-container-lowest p-8 shadow-sm rounded-lg border border-outline-variant/10 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-tertiary"></div>
           <div className="flex items-center gap-2 mb-8">
@@ -265,9 +410,40 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
             <button onClick={handleSave} className="bg-primary text-white px-8 py-3 rounded font-label font-bold text-xs uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all">설정 저장</button>
           </div>
         </section>
+        </div>
       )}
 
-      {activeSubTab === 'buildings' && editData && (
+      {activeSubTab === 'buildings' && (
+        <div className="space-y-8">
+        <section className="bg-surface-container-lowest p-6 shadow-sm rounded-lg border border-outline-variant/10 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-1 h-full bg-secondary"></div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="material-symbols-outlined text-secondary">add_business</span>
+            <input
+              className="flex-1 min-w-[160px] bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-secondary py-2 px-2 font-bold text-on-surface"
+              type="text"
+              placeholder="새 동 이름 (예: 101동)"
+              value={newBuildingName}
+              onChange={(e) => setNewBuildingName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddBuilding(); }}
+            />
+            <button
+              onClick={handleAddBuilding}
+              disabled={addingBuilding}
+              className="bg-secondary text-white px-5 py-2.5 rounded font-label font-bold text-xs uppercase tracking-widest shadow-sm hover:shadow-md transition-all disabled:opacity-50 flex-shrink-0"
+            >
+              {addingBuilding ? '추가 중…' : '동 추가'}
+            </button>
+          </div>
+        </section>
+
+        {!editData && (
+          <div className="py-16 text-center text-outline bg-surface-container-lowest rounded-lg border-2 border-dashed border-outline-variant/30">
+            등록된 동이 없습니다. 위에서 첫 동을 추가해 주세요.
+          </div>
+        )}
+
+        {editData && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8 space-y-8">
             <section className="bg-surface-container-lowest p-8 shadow-sm rounded-lg border border-outline-variant/10 relative overflow-hidden">
@@ -291,6 +467,43 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
                   <select className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-3 px-2" value={editData.basement_count} onChange={(e) => setEditData({ ...editData, basement_count: parseInt(e.target.value) })}>
                     {[0, 1, 2, 3].map(v => <option key={v} value={v}>지하 {v > 0 ? v + '개 층' : '없음'}</option>)}
                   </select>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-8 border-t border-outline-variant/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-tertiary text-lg">flag</span>
+                  <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-tertiary">기준층 설정</h4>
+                </div>
+                <p className="text-xs text-outline mb-6">이 층을 초과하는 부분부터 기성(청구) 금액에 산입됩니다.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">기름칠(박리제) 기준층</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.oiling_base_floor ?? 0}
+                      onChange={(e) => setEditData({ ...editData, oiling_base_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">청소 기준층 (1차·2차 공통)</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.cleaning_base_floor ?? 0}
+                      onChange={(e) => setEditData({ ...editData, cleaning_base_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">하역 기준층</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.unloading_base_floor ?? 0}
+                      onChange={(e) => setEditData({ ...editData, unloading_base_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
                 </div>
               </div>
             </section>
@@ -333,6 +546,8 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
               <span className="material-symbols-outlined">save</span> 마스터 저장
             </button>
           </div>
+        </div>
+        )}
         </div>
       )}
 

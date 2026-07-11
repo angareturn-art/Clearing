@@ -1,0 +1,378 @@
+<title>CLEARING · 신규 현장 추가 매뉴얼</title>
+<style>
+  :root{
+    --primary:#0A4DA6;
+    --primary-ink:#062F55;
+    --primary-tint:#E7EEF9;
+    --surface:#F4F7FB;
+    --card:#FFFFFF;
+    --ink:#16212C;
+    --muted:#56697D;
+    --line:#DCE4EC;
+    --warn:#B4530A;
+    --warn-tint:#FBEEE2;
+    --danger:#C0293A;
+    --danger-tint:#FBE9EA;
+    --ok:#1E7A45;
+    --ok-tint:#E9F5EE;
+    --mono: Consolas, "Cascadia Mono", "SFMono-Regular", Menlo, monospace;
+    --sans: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--surface);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15.5px;
+    line-height:1.7;
+    font-variant-numeric:tabular-nums;
+  }
+  ::selection{ background:var(--primary-tint); color:var(--primary-ink); }
+
+  a{ color:var(--primary); }
+
+  .shell{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 28px 100px;
+    display:grid;
+    grid-template-columns:236px minmax(0,1fr);
+    gap:48px;
+  }
+
+  /* ── Masthead ── */
+  .masthead{
+    grid-column:1/-1;
+    padding:52px 0 34px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:10px;
+    font-size:11.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--primary);
+  }
+  .eyebrow::before{
+    content:""; width:22px; height:2px; background:var(--primary); display:inline-block;
+  }
+  h1.title{
+    margin:0; font-weight:800; letter-spacing:-0.01em;
+    font-size:clamp(28px,4vw,38px);
+    text-wrap:balance;
+    color:var(--primary-ink);
+  }
+  .subtitle{ margin:0; color:var(--muted); font-size:16px; max-width:66ch; }
+  .meta-row{
+    display:flex; flex-wrap:wrap; gap:10px; margin-top:6px;
+  }
+  .meta-pill{
+    font-family:var(--mono); font-size:11.5px; color:var(--muted);
+    background:var(--card); border:1px solid var(--line); border-radius:100px;
+    padding:5px 12px;
+  }
+
+  /* ── TOC ── */
+  nav.toc{
+    position:sticky; top:28px; align-self:start;
+    padding-top:36px;
+    display:flex; flex-direction:column; gap:2px;
+    height:fit-content;
+  }
+  nav.toc .toc-label{
+    font-size:10.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 10px 14px;
+  }
+  nav.toc a{
+    text-decoration:none; color:var(--ink); font-size:13.6px; font-weight:600;
+    padding:9px 14px; border-radius:9px; border-left:2px solid transparent;
+    display:flex; gap:10px; align-items:baseline;
+  }
+  nav.toc a:hover{ background:var(--primary-tint); color:var(--primary-ink); }
+  nav.toc a .n{ font-family:var(--mono); font-size:11px; color:var(--muted); font-weight:700; }
+  nav.toc a.prep{ margin-top:8px; padding-top:10px; border-top:1px dashed var(--line); }
+
+  /* ── Main column ── */
+  main{ padding-top:36px; min-width:0; }
+  section.step{ margin-bottom:52px; scroll-margin-top:24px; }
+  section.step:first-of-type{ margin-top:0; }
+
+  .step-head{ display:flex; align-items:baseline; gap:14px; margin-bottom:14px; }
+  .step-num{
+    font-family:var(--mono); font-weight:700; font-size:14px; color:var(--primary);
+    background:var(--primary-tint); border-radius:7px; padding:4px 10px; flex-shrink:0;
+  }
+  h2{ margin:0; font-size:21px; font-weight:800; letter-spacing:-0.01em; color:var(--primary-ink); text-wrap:balance; }
+  h3{ font-size:15.5px; font-weight:700; color:var(--ink); margin:22px 0 8px; }
+  p{ margin:0 0 14px; max-width:70ch; color:var(--ink); }
+  p.lede{ color:var(--muted); }
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:22px 24px; margin:16px 0;
+  }
+
+  code{ font-family:var(--mono); font-size:0.88em; background:var(--primary-tint); color:var(--primary-ink); padding:1px 6px; border-radius:5px; }
+  pre{
+    font-family:var(--mono); font-size:13px; line-height:1.65;
+    background:#0E1B2B; color:#E4ECF7; border-radius:12px;
+    padding:18px 20px; overflow-x:auto; margin:14px 0;
+    border:1px solid #1D2E45;
+  }
+  pre code{ background:none; color:inherit; padding:0; }
+  .pre-label{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:18px 0 -4px;
+  }
+
+  table{ width:100%; border-collapse:collapse; margin:14px 0; }
+  caption{ text-align:left; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; font-weight:700; }
+  th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); font-size:13.6px; vertical-align:top; }
+  th{ font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  td code{ white-space:nowrap; }
+  .req{ color:var(--danger); font-weight:700; font-size:11px; }
+  .opt{ color:var(--muted); font-size:11px; }
+
+  .callout{
+    display:flex; gap:14px; border-radius:12px; padding:16px 18px; margin:16px 0;
+    border:1px solid var(--line);
+  }
+  .callout .icon{ font-size:18px; line-height:1.4; flex-shrink:0; }
+  .callout p{ margin:0; }
+  .callout.danger{ background:var(--danger-tint); border-color:#F2C7CC; }
+  .callout.danger .icon{ color:var(--danger); }
+  .callout.warn{ background:var(--warn-tint); border-color:#F3D8BC; }
+  .callout.warn .icon{ color:var(--warn); }
+  .callout.ok{ background:var(--ok-tint); border-color:#C6E4D2; }
+  .callout.ok .icon{ color:var(--ok); }
+  .callout strong{ display:block; font-size:12px; letter-spacing:.03em; text-transform:uppercase; margin-bottom:3px; }
+
+  /* mock UI snippets to ground the steps visually */
+  .mock{
+    border:1px solid var(--line); border-radius:14px; background:var(--card);
+    padding:20px; margin:16px 0;
+  }
+  .mock-label{ font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:14px; }
+  .mock-tabs{ display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .mock-tab{ font-size:11.5px; font-weight:700; padding:7px 13px; border-radius:8px; background:var(--surface); color:var(--muted); }
+  .mock-tab.active{ background:var(--primary); color:#fff; }
+  .mock-cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .mock-card{ border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--surface); }
+  .mock-card.new{ border:1.5px dashed var(--primary); background:var(--primary-tint); }
+  .mock-card .name{ font-weight:800; font-size:13.5px; color:var(--primary-ink); margin-bottom:6px; }
+  .mock-card .line{ font-size:11px; color:var(--muted); }
+  .mock-badge{ display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; background:var(--primary); color:#fff; border-radius:100px; padding:2px 8px; margin-bottom:8px; }
+
+  .checklist{ list-style:none; margin:14px 0; padding:0; display:flex; flex-direction:column; gap:9px; }
+  .checklist li{ display:flex; gap:10px; align-items:flex-start; font-size:13.8px; color:var(--ink); }
+  .checklist li::before{
+    content:""; width:15px; height:15px; margin-top:2px; flex-shrink:0;
+    border:1.6px solid var(--primary); border-radius:4px; background:var(--primary-tint);
+  }
+
+  .end-note{
+    grid-column:2; margin-top:-16px; padding-top:24px; border-top:1px solid var(--line);
+    color:var(--muted); font-size:13px;
+  }
+
+  @media (max-width:820px){
+    .shell{ grid-template-columns:1fr; }
+    nav.toc{ position:static; flex-direction:row; flex-wrap:wrap; padding-top:0; }
+    nav.toc .toc-label{ display:none; }
+    nav.toc a.prep{ border-top:none; margin-top:0; }
+    .end-note{ grid-column:1; }
+  }
+
+  @media (prefers-reduced-motion:no-preference){
+    section.step{ animation:rise .4s ease both; }
+    @keyframes rise{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;} }
+  }
+</style>
+
+<div class="shell">
+
+  <div class="masthead">
+    <span class="eyebrow">CLEARING · 관리자 운영 매뉴얼</span>
+    <h1 class="title">신규 현장(사이트) 추가 가이드</h1>
+    <p class="subtitle">다중 현장 구조를 쓰는 Clearing 시스템에 새 건설 현장을 하나 더 등록하고, 해당 현장에서 시스템을 바로 쓸 수 있도록 기준정보를 세팅하는 절차입니다.</p>
+    <div class="meta-row">
+      <span class="meta-pill">대상: role = admin</span>
+      <span class="meta-pill">백엔드 :5010 · 프론트 :3000</span>
+      <span class="meta-pill">DB: server/construction.db</span>
+    </div>
+  </div>
+
+  <nav class="toc">
+    <div class="toc-label">단계</div>
+    <a href="#prep" class="prep"><span class="n">00</span> 작업 전 백업</a>
+    <a href="#token"><span class="n">01</span> 관리자 토큰 확보</a>
+    <a href="#create"><span class="n">02</span> 현장 등록 API 호출</a>
+    <a href="#select"><span class="n">03</span> 현장 선택 화면 확인</a>
+    <a href="#buildings"><span class="n">04</span> 동/호수 기준정보 등록</a>
+    <a href="#workers"><span class="n">05</span> 작업자·기타 정보 등록</a>
+    <a href="#verify"><span class="n">06</span> 최종 점검</a>
+  </nav>
+
+  <main>
+
+    <section class="step" id="prep">
+      <div class="step-head"><span class="step-num">00</span><h2>작업 전 백업 (필수)</h2></div>
+      <p class="lede">Clearing 프로젝트 규칙상 DB에 손을 대는 모든 작업은 물리적 백업을 먼저 수행해야 합니다. 현장 추가도 <code>sites</code> 테이블에 행(row)을 쓰는 작업이므로 예외가 아닙니다.</p>
+      <div class="callout danger">
+        <div class="icon">⛔</div>
+        <div><strong>백업 없이 진행 금지</strong><p><code>server/construction.db</code> 파일을 복사해 <code>server/construction_backup_YYYYMMDD_HHMM.db</code> 형식으로 보관한 뒤 다음 단계로 진행하세요. 과거 백업 누락으로 입력 데이터가 유실된 사례가 있어 예외 없이 적용되는 규칙입니다.</p></div>
+      </div>
+      <div class="pre-label">PowerShell 백업 예시</div>
+      <pre><code>Copy-Item server\construction.db server\construction_backup_20260704_1000.db</code></pre>
+    </section>
+
+    <section class="step" id="token">
+      <div class="step-head"><span class="step-num">01</span><h2>관리자 토큰 확보</h2></div>
+      <p>현재 화면에는 "현장 추가" 버튼이 없습니다. <code>POST /api/sites</code> API가 서버에 이미 구현되어 있지만 이를 호출하는 UI가 아직 연결되어 있지 않기 때문에, 관리자 계정으로 로그인한 뒤 브라우저에 저장된 인증 토큰을 이용해 직접 API를 호출해야 합니다.</p>
+      <ol class="checklist" style="list-style:decimal; padding-left:20px;">
+        <li style="display:list-item;">Clearing 앱(<code>http://localhost:3000</code>)에 <strong>admin 권한 계정</strong>으로 로그인합니다.</li>
+        <li style="display:list-item;">브라우저 개발자 도구(F12) → <strong>Console</strong> 탭을 엽니다.</li>
+        <li style="display:list-item;">아래 명령으로 토큰 값을 확인합니다.</li>
+      </ol>
+      <pre><code>localStorage.getItem('ba_token')</code></pre>
+      <p>따옴표를 제외한 문자열이 JWT 토큰입니다. 이 값을 다음 단계 요청의 <code>Authorization</code> 헤더에 사용합니다.</p>
+      <div class="callout warn">
+        <div class="icon">⚠</div>
+        <div><strong>admin 이 아니면 403</strong><p>서버가 <code>req.user.role !== 'admin'</code>인 경우 <em>"관리자만 현장을 추가할 수 있습니다"</em> 오류를 반환합니다. 일반 작업자 계정 토큰으로는 다음 단계가 실패합니다.</p></div>
+      </div>
+    </section>
+
+    <section class="step" id="create">
+      <div class="step-head"><span class="step-num">02</span><h2>현장 등록 API 호출</h2></div>
+      <p>확보한 토큰으로 <code>POST /api/sites</code>를 호출해 새 현장 레코드를 생성합니다. 브라우저 콘솔에서 바로 실행하는 방법이 가장 간단합니다 (토큰을 다시 붙여넣지 않아도 되고, 세션 쿠키/오리진이 이미 일치합니다).</p>
+
+      <table>
+        <caption>요청 바디 필드</caption>
+        <thead><tr><th>필드</th><th>설명</th><th>필수</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td>현장명 (예: "OO 아파트 신축현장")</td><td class="req">필수</td></tr>
+          <tr><td><code>primary_contractor</code></td><td>원청사명</td><td class="opt">선택</td></tr>
+          <tr><td><code>subcontractor</code></td><td>하청사명 (소속사)</td><td class="opt">선택</td></tr>
+          <tr><td><code>address</code></td><td>현장 주소</td><td class="opt">선택</td></tr>
+          <tr><td><code>start_date</code></td><td>착공일 (YYYY-MM-DD)</td><td class="opt">선택</td></tr>
+          <tr><td><code>end_date</code></td><td>준공 예정일 (YYYY-MM-DD)</td><td class="opt">선택</td></tr>
+        </tbody>
+      </table>
+
+      <div class="pre-label">방법 A — 브라우저 콘솔 (권장)</div>
+      <pre><code>fetch('/api/sites', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + localStorage.getItem('ba_token')
+  },
+  body: JSON.stringify({
+    name: '신규 현장명',
+    primary_contractor: '원청사명',
+    subcontractor: '하청사명',
+    address: '현장 주소',
+    start_date: '2026-07-04',
+    end_date: ''
+  })
+}).then(r => r.json()).then(console.log)</code></pre>
+
+      <div class="pre-label">방법 B — PowerShell (앱 밖에서 실행할 때)</div>
+      <pre><code>$token = "여기에_JWT_토큰_붙여넣기"
+
+Invoke-RestMethod -Uri "http://localhost:5010/api/sites" `
+  -Method Post -ContentType "application/json" `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -Body (@{
+      name = "신규 현장명"
+      primary_contractor = "원청사명"
+      subcontractor = "하청사명"
+      address = "현장 주소"
+      start_date = "2026-07-04"
+      end_date = ""
+    } | ConvertTo-Json)</code></pre>
+
+      <p>정상 처리되면 <code>{ "id": 2 }</code> 형태로 새로 생성된 현장의 <code>id</code>가 반환됩니다. 이 번호가 이후 <code>site_id</code>로 시스템 전반에서 사용됩니다.</p>
+    </section>
+
+    <section class="step" id="select">
+      <div class="step-head"><span class="step-num">03</span><h2>현장 선택 화면 확인</h2></div>
+      <p>로그아웃 후 재로그인하거나, 사이드바에서 현재 현장을 해제하면 현장 선택 화면이 뜹니다. 방금 만든 현장이 카드로 표시되는지 확인하고 클릭해 진입합니다.</p>
+      <div class="mock">
+        <div class="mock-label">SiteSelector · Select Project Site</div>
+        <div class="mock-cards">
+          <div class="mock-card">
+            <div class="name">기본 현장</div>
+            <div class="line">원청: 원청사 미지정</div>
+            <div class="line">하청: 하청사 미지정</div>
+          </div>
+          <div class="mock-card new">
+            <div class="mock-badge">NEW</div>
+            <div class="name">신규 현장명</div>
+            <div class="line">원청: 원청사명</div>
+            <div class="line">하청: 하청사명</div>
+          </div>
+        </div>
+      </div>
+      <p>목록에 보이지 않으면 <code>sites.status</code> 값이 <code>'active'</code>인지 확인하세요 — 이 화면은 <code>WHERE status = 'active'</code> 조건으로만 현장을 불러옵니다.</p>
+    </section>
+
+    <section class="step" id="buildings">
+      <div class="step-head"><span class="step-num">04</span><h2>동/호수 기준정보 등록</h2></div>
+      <p>새 현장은 <code>site_id</code>가 다르기 때문에 건물(동)·세대(호) 데이터를 <strong>처음부터 새로 입력</strong>해야 합니다. 기존 현장의 기준정보는 자동으로 복사되지 않습니다.</p>
+      <div class="mock">
+        <div class="mock-label">기준정보 (Settings)</div>
+        <div class="mock-tabs">
+          <span class="mock-tab">현장 정보</span>
+          <span class="mock-tab active">동/호수 관리</span>
+          <span class="mock-tab">주요 메뉴</span>
+          <span class="mock-tab">사용자 관리</span>
+        </div>
+        <p style="margin:0; font-size:13px; color:var(--muted);">사이드바 <strong>관리 → 기준정보</strong> 진입 → <strong>동/호수 관리</strong> 탭에서 동(건물), 층수, 기준층(박리제/청소), 라인 구성을 입력합니다.</p>
+      </div>
+      <h3>이 단계에서 입력할 것</h3>
+      <ul class="checklist">
+        <li>동(건물) 이름, 지하층 수, 주소</li>
+        <li>박리제(기름칠) 기준층, 청소 기준층</li>
+        <li>동별 호수(라인) 구성 및 층수</li>
+      </ul>
+      <div class="callout ok">
+        <div class="icon">✓</div>
+        <div><strong>자동 격리</strong><p>등록한 데이터는 서버가 요청 헤더의 <code>X-Site-Id</code>를 읽어 자동으로 현재 현장의 <code>site_id</code>로 저장하므로, 별도 설정 없이도 다른 현장 데이터와 섞이지 않습니다.</p></div>
+      </div>
+    </section>
+
+    <section class="step" id="workers">
+      <div class="step-head"><span class="step-num">05</span><h2>작업자 · 기타 정보 등록</h2></div>
+      <p>작업자(<code>workers</code>), 단가 이력(<code>worker_wage_history</code>), 비상연락망 등도 모두 <code>site_id</code>로 구분되는 테이블입니다. 새 현장에서 바로 기록을 입력하려면 아래도 함께 채워야 합니다.</p>
+      <table>
+        <caption>현장별로 다시 입력해야 하는 항목</caption>
+        <thead><tr><th>메뉴</th><th>내용</th></tr></thead>
+        <tbody>
+          <tr><td>작업자</td><td>작업자 기준정보 등록 (역할/팀/단가)</td></tr>
+          <tr><td>비상연락망</td><td>현장 관계자 비상 연락처</td></tr>
+          <tr><td>기준정보 &gt; 주요 메뉴</td><td>현장에서 노출할 탭 구성 커스터마이즈 (선택)</td></tr>
+        </tbody>
+      </table>
+      <p class="lede">사용자 계정(<code>users</code>)은 현장별로 분리되지 않으므로, 기존 로그인 계정으로 바로 새 현장을 조회·입력할 수 있습니다. 계정을 새로 만들 필요는 없습니다.</p>
+    </section>
+
+    <section class="step" id="verify">
+      <div class="step-head"><span class="step-num">06</span><h2>최종 점검</h2></div>
+      <ul class="checklist">
+        <li>현장 선택 화면에 새 현장 카드가 보인다</li>
+        <li>대시보드/배치도에 등록한 동·호수가 정상 표시된다</li>
+        <li>다른 현장으로 전환했을 때 데이터가 서로 섞이지 않는다</li>
+        <li>백업 파일이 <code>server/</code>에 생성되어 있다</li>
+      </ul>
+      <p>이상이 없으면 등록이 완료된 것입니다. 이후 현장 정보(현장명·원청·하청) 수정은 <strong>기준정보 → 현장 정보</strong> 탭에서 관리자 권한으로 언제든 변경할 수 있습니다.</p>
+    </section>
+
+  </main>
+
+  <div class="end-note">
+    참고 · 신규 현장 등록은 현재 API로만 가능하며(관리자 전용 UI 버튼 미구현), 절차의 핵심은 <code>sites</code> 테이블에 행을 만드는 02단계와 그 <code>site_id</code>로 기준정보를 새로 채우는 04–05단계입니다.
+  </div>
+
+</div>

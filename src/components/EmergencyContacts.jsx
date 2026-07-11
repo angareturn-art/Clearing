@@ -2,16 +2,18 @@
 
 const API_URL = '/api';
 
-const EmergencyContacts = () => {
+const EmergencyContacts = ({ currentSite }) => {
   const [contacts, setContacts] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ category: '현장 관리', name: '', phone: '', role: '' });
   const [showSOS, setShowSOS] = useState(false);
 
-  useEffect(() => { fetchContacts(); }, []);
+  useEffect(() => { fetchContacts(); }, [currentSite?.id]);
 
   const fetchContacts = async () => {
-    const res = await fetch(`${API_URL}/emergency`);
+    const res = await fetch(`${API_URL}/emergency`, {
+      headers: { 'X-Site-Id': currentSite?.id }
+    });
     const data = await res.json();
     setContacts(data || []);
   };
@@ -20,7 +22,7 @@ const EmergencyContacts = () => {
     e.preventDefault();
     await fetch(`${API_URL}/emergency`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Site-Id': currentSite?.id },
       body: JSON.stringify(form)
     });
     setShowForm(false);
@@ -30,7 +32,10 @@ const EmergencyContacts = () => {
 
   const handleDelete = async (id) => {
     if (!window.confirm('삭제하시겠습니까?')) return;
-    await fetch(`${API_URL}/emergency/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/emergency/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-Site-Id': currentSite?.id }
+    });
     fetchContacts();
   };
 
