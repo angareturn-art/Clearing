@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import dayjs from 'dayjs';
+import { keepLatestPhase2 } from '../utils/cleaningRecords';
 
 const API_URL = '/api';
 
-export default function CleaningSignApproval({ currentSite }) {
+export default function CleaningSignApproval({ currentSite, onSigned }) {
   const [records, setRecords]       = useState([]);
   const [loading, setLoading]       = useState(false);
   const [signingIds, setSigningIds] = useState(new Set());
@@ -35,7 +36,7 @@ export default function CleaningSignApproval({ currentSite }) {
     try {
       const res  = await fetchWithSite(`${API_URL}/records/cleaning/pending-sign`);
       const data = await res.json();
-      setRecords(Array.isArray(data) ? data : []);
+      setRecords(keepLatestPhase2(Array.isArray(data) ? data : []));
     } catch (e) {
       console.error('서명 대기 목록 로드 실패:', e);
     } finally {
@@ -87,7 +88,7 @@ export default function CleaningSignApproval({ currentSite }) {
     const ho = record.ho || '';
     if (!window.confirm(`${record.building_name} ${fl} ${ho}\n2차 청소 본청 서명을 완료 처리하시겠습니까?`)) return;
     const ok = await signOne(record);
-    if (ok) showToast(`${record.building_name} ${fl} ${ho} 서명 완료`);
+    if (ok) { showToast(`${record.building_name} ${fl} ${ho} 서명 완료`); onSigned?.(); }
     else     alert('서명 처리에 실패했습니다.');
   };
 
@@ -99,7 +100,7 @@ export default function CleaningSignApproval({ currentSite }) {
     for (const r of floorItems) {
       if (await signOne(r)) count++;
     }
-    if (count > 0) showToast(`${buildingName} ${fl} ${count}건 서명 완료`);
+    if (count > 0) { showToast(`${buildingName} ${fl} ${count}건 서명 완료`); onSigned?.(); }
   };
 
   // ── 동 전체 서명 ──
@@ -109,7 +110,7 @@ export default function CleaningSignApproval({ currentSite }) {
     for (const r of allItems) {
       if (await signOne(r)) count++;
     }
-    if (count > 0) showToast(`${buildingName} ${count}건 서명 완료`);
+    if (count > 0) { showToast(`${buildingName} ${count}건 서명 완료`); onSigned?.(); }
   };
 
   // ── 층 표시 헬퍼 ──
@@ -243,6 +244,8 @@ export default function CleaningSignApproval({ currentSite }) {
                       .sort((a, b) =>
                         String(a.ho || '').localeCompare(String(b.ho || ''), undefined, { numeric: true })
                       );
+                    const floorTotalUnits = floorItems[0]?.floor_total_units || 0;
+                    const floorShort = floorItems.length < floorTotalUnits;
 
                     return (
                       <div
@@ -250,8 +253,13 @@ export default function CleaningSignApproval({ currentSite }) {
                         className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low/40 transition-colors"
                       >
                         {/* 층 번호 */}
-                        <div className="w-12 flex-shrink-0 text-right">
-                          <span className="text-sm font-black text-on-surface">{floorLabel(floor)}</span>
+                        <div className="w-16 flex-shrink-0 text-right">
+                          <div className="text-sm font-black text-on-surface">{floorLabel(floor)}</div>
+                          {floorTotalUnits > 0 && (
+                            <div className={`text-[10px] font-bold ${floorShort ? 'text-amber-600' : 'text-on-surface-variant'}`}>
+                              {floorItems.length}/{floorTotalUnits}세대
+                            </div>
+                          )}
                         </div>
 
                         {/* 호수 버튼들 */}

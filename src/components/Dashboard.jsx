@@ -34,6 +34,7 @@ const ContractSummaryPanel = ({ data }) => {
         <div className="flex gap-4 flex-wrap">
           {[
             { label: '기름치칠', key: 'oiling', icon: 'format_paint' },
+            { label: '슬라브',   key: 'slab',   icon: 'foundation' },
             { label: '1차 청소', key: 'phase1', icon: 'cleaning_services' },
             { label: '2차 청소', key: 'phase2', icon: 'done_all' },
           ].map(({ label, key, icon }) => (
@@ -130,8 +131,9 @@ const MonthlyProgressChart = ({ data }) => {
                 {monthly_settled.map((m, i) => {
                   const barH    = Math.max(Math.round((m.total / contractTotal) * CHART_H), 4);
                   const oilH    = m.total > 0 ? Math.round((m.oiling / m.total) * barH) : 0;
+                  const slabH   = m.total > 0 ? Math.round(((m.slab || 0) / m.total) * barH) : 0;
                   const p1H     = m.total > 0 ? Math.round((m.phase1 / m.total) * barH) : 0;
-                  const p2H     = barH - oilH - p1H;
+                  const p2H     = barH - oilH - slabH - p1H;
                   return (
                     <div key={i} className="flex flex-col items-center gap-0 group flex-1 min-w-[36px]">
                       <div className="w-full flex flex-col items-center">
@@ -162,6 +164,13 @@ const MonthlyProgressChart = ({ data }) => {
                               title={`기름치칠: ${fmt(m.oiling)}원`}
                             />
                           )}
+                          {slabH > 0 && (
+                            <div
+                              className={`w-full ${p2H === 0 && p1H === 0 && oilH === 0 ? 'rounded-t-md' : ''}`}
+                              style={{ height: slabH, backgroundColor: '#92400E' }}
+                              title={`슬라브: ${fmt(m.slab)}원`}
+                            />
+                          )}
                         </div>
                       </div>
                       <p className="text-[12px] font-label font-bold text-primary mt-1.5">
@@ -189,6 +198,7 @@ const MonthlyProgressChart = ({ data }) => {
               <div className="flex items-center gap-4 mt-3 flex-wrap">
                 {[
                   { color: 'bg-primary',   label: '기름치칠' },
+                  { color: '',             label: '슬라브',   hex: '#92400E' },
                   { color: '',             label: '1차 청소', hex: '#1b6b35' },
                   { color: 'bg-secondary', label: '2차 청소' },
                 ].map(({ color, label, hex }) => (
@@ -303,6 +313,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
   const totalUnits = buildings.reduce((acc, b) =>
     acc + b.houses.reduce((a, h) => a + h.floors + (b.basement_count || 0), 0), 0);
   const oiledCount = new Set(fs.oiling?.map(r => `${r.building_id}-${r.floor}`)).size;
+  const slabCount = new Set(fs.slab?.map(r => `${r.building_id}-${r.floor}`)).size;
   const phase1Count = fs.cleaning?.filter(r => r.phase === 1).length || 0;
   const phase2Count = fs.cleaning?.filter(r => r.phase >= 2).length || 0;
   const unloadedCount = fs.unloading?.filter(r => r.phase >= 1).length || 0;
@@ -320,6 +331,9 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
     ];
     const oiledFloors = allOilFloors.filter(f =>
       fs.oiling?.some(r => r.building_id === b.id && r.floor === f)
+    ).length;
+    const slabbedFloors = allOilFloors.filter(f =>
+      fs.slab?.some(r => r.building_id === b.id && r.floor === f)
     ).length;
 
     const cleanedFloors = b.houses.reduce((a, h) => {
@@ -352,6 +366,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
       totalFloors,
       totalOilFloors,
       oiledFloors,
+      slabbedFloors,
       p1,
       p2,
       cleanedFloors: Number(cleanedFloors.toFixed(1)),
@@ -365,6 +380,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
   const recentActivityRaw = [
     ...(summary.cleaning?.slice(0, 3) || []).map(r => ({ ...r, type: '청소', color: 'bg-secondary' })),
     ...(summary.oiling?.slice(0, 2) || []).map(r => ({ ...r, type: '박리제', color: 'bg-primary' })),
+    ...(summary.slab?.slice(0, 2) || []).map(r => ({ ...r, type: '슬라브', color: 'bg-amber-700' })),
     ...(summary.unloading?.slice(0, 2) || []).map(r => ({ ...r, type: '하역', color: 'bg-tertiary' })),
   ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')).slice(0, 6);
 
@@ -422,7 +438,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
       <MonthlyProgressChart data={contractSummary} />
 
       {/* ── KPI 카드 행 ── */}
-      <div className={`grid gap-4 ${showWeather ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4'}`}>
+      <div className={`grid gap-4 ${showWeather ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-2 lg:grid-cols-5'}`}>
 
         {/* 날씨 카드 */}
         {showWeather && (
@@ -479,6 +495,12 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
           sub={`층 단위 ${oiledCount}건`}
           icon="format_paint"
         />
+        <KpiCard
+          label="슬라브 완료"
+          value={slabCount}
+          sub={`층 단위 ${slabCount}건`}
+          icon="foundation"
+        />
       </div>
 
       {/* ── 메인 2열 레이아웃 ── */}
@@ -503,6 +525,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
                     <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">1차</th>
                     <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">2차</th>
                     <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">박리</th>
+                    <th className="px-4 py-3 text-right text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500">슬라브</th>
                     <th className="px-4 py-3 text-[11.5px] font-label font-bold uppercase tracking-wide text-gray-500 min-w-[120px]">진행률</th>
                   </tr>
                 </thead>
@@ -522,6 +545,9 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
                         </td>
                         <td className="px-4 py-3.5 text-right font-label">
                           <span className={`font-bold ${bp.oiledFloors > 0 ? 'text-gray-600' : 'text-gray-400'}`}>{bp.oiledFloors}</span>
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-label">
+                          <span className={`font-bold ${bp.slabbedFloors > 0 ? 'text-gray-600' : 'text-gray-400'}`}>{bp.slabbedFloors}</span>
                         </td>
                         <td className="px-4 py-3.5">
                           <div className="flex items-center gap-2">
@@ -560,8 +586,9 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
                 { label: '1차 청소', value: phase1Count, unit: '건', color: 'text-primary' },
                 { label: '2차 청소 완료', value: phase2Count, unit: '건', color: 'text-secondary' },
                 { label: '박리제칠', value: oiledCount, unit: '층', color: '' },
+                { label: '슬라브', value: slabCount, unit: '층', color: '' },
                 { label: '하역 완료', value: unloadedCount, unit: '건', color: '' },
-              ].map((item, i) => (
+              ].map((item, i, arr) => (
                 <div key={i}>
                   <div className="flex justify-between items-center">
                     <span className="text-[12.5px] font-label font-medium text-gray-500">{item.label}</span>
@@ -569,7 +596,7 @@ const Dashboard = ({ buildings, summary, filteredSummary, siteConfig, currentSit
                       {item.value.toLocaleString()} <span className="font-medium text-gray-500 text-[11.5px]">{item.unit}</span>
                     </span>
                   </div>
-                  {i < 4 && <div className="h-px bg-gray-50 mt-3" />}
+                  {i < arr.length - 1 && <div className="h-px bg-gray-50 mt-3" />}
                 </div>
               ))}
             </div>

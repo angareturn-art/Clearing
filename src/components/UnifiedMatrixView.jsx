@@ -3,6 +3,8 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 const C = {
   oilLast:    { bg: '#C2410C', text: '#fff',     label: '기름칠 최전선' },
   oilDone:    { bg: '#EA580C', text: '#fff',     label: '기름칠 완료' },
+  slabLast:   { bg: '#78350F', text: '#fff',     label: '슬라브 최전선' },
+  slabDone:   { bg: '#92400E', text: '#fff',     label: '슬라브 완료' },
   c1Full:     { bg: '#0EA5E9', text: '#fff',     label: '1차 완료' },
   c2Unsigned: { bg: '#84CC16', text: '#1a2e05',  label: '2차 서명대기' },
   c2Signed:   { bg: '#15803D', text: '#fff',     label: '2차 서명완료' },
@@ -18,16 +20,17 @@ const BASELINE_COLOR = '#EF4444';
 const TABS = [
   { id: 'unified',   label: '통합' },
   { id: 'oiling',    label: '기름칠' },
+  { id: 'slab',      label: '슬라브' },
   { id: 'clean1',    label: '1차' },
   { id: 'clean2',    label: '2차' },
   { id: 'unloading', label: '하역' },
 ];
 
 // 통합을 제외한, 다중 선택(토글) 가능한 공정 카테고리 (모바일 매트릭스와 동일한 상호작용)
-const CATEGORY_IDS = ['oiling', 'clean1', 'clean2', 'unloading'];
+const CATEGORY_IDS = ['oiling', 'slab', 'clean1', 'clean2', 'unloading'];
 
 const LEGEND = [
-  C.oilLast, C.oilDone, C.c1Full,
+  C.oilLast, C.oilDone, C.slabLast, C.slabDone, C.c1Full,
   C.c2Unsigned, C.c2Signed,
   C.ulLast, C.ulDone,
   C.etcLast, C.etcDone,
@@ -80,8 +83,8 @@ export default function UnifiedMatrixView({ buildings, summary }) {
     const stats = {};
     buildings.forEach(b => {
       stats[b.id] = {
-        oiling: 0, clean1: 0, clean2: 0, clean2s: 0, unloading: 0, etc: 0,
-        oilDate: {}, c1Date: {}, c2Date: {}, c2sDate: {}, ulDate: {}, etDate: {},
+        oiling: 0, slab: 0, clean1: 0, clean2: 0, clean2s: 0, unloading: 0, etc: 0,
+        oilDate: {}, slabDate: {}, c1Date: {}, c2Date: {}, c2sDate: {}, ulDate: {}, etDate: {},
         ulCount: {}, c1Count: {}, c2Count: {}, c2sCount: {},
       };
     });
@@ -91,6 +94,13 @@ export default function UnifiedMatrixView({ buildings, summary }) {
       const f = Number(r.floor);
       if (f > s.oiling) s.oiling = f;
       if (r.date && (!s.oilDate[f] || r.date > s.oilDate[f])) s.oilDate[f] = r.date;
+    });
+
+    (summary.slab || []).forEach(r => {
+      const s = stats[Number(r.building_id)]; if (!s) return;
+      const f = Number(r.floor);
+      if (f > s.slab) s.slab = f;
+      if (r.date && (!s.slabDate[f] || r.date > s.slabDate[f])) s.slabDate[f] = r.date;
     });
 
     (summary.cleaning || []).forEach(r => {
@@ -154,7 +164,7 @@ export default function UnifiedMatrixView({ buildings, summary }) {
       0,
       ...buildings.map(b => {
         const s = bldStats[b.id] || {};
-        return Math.max(s.oiling || 0, s.clean1 || 0, s.clean2 || 0, s.unloading || 0);
+        return Math.max(s.oiling || 0, s.slab || 0, s.clean1 || 0, s.clean2 || 0, s.unloading || 0);
       })
     );
     if (maxActive > 0 && maxFloor > maxActive + 2) {
@@ -178,6 +188,8 @@ export default function UnifiedMatrixView({ buildings, summary }) {
 
     const oiled      = floor <= s.oiling;
     const isOilLast  = floor === s.oiling && s.oiling > 0;
+    const slabbed    = floor <= s.slab;
+    const isSlabLast = floor === s.slab && s.slab > 0;
     const hasET      = floor <= s.etc;
     const isETLast   = floor === s.etc && s.etc > 0;
 
@@ -205,6 +217,7 @@ export default function UnifiedMatrixView({ buildings, summary }) {
     const singleCat = cats.size === 1 ? [...cats][0] : null;
     const base =
       singleCat === 'oiling'    ? (b.oiling_base_floor    || 0) :
+      singleCat === 'slab'      ? (b.slab_base_floor      || 0) :
       singleCat === 'unloading' ? (b.unloading_base_floor || 0) :
       (b.cleaning_base_floor || 0);
     const isBaseline = floor === base + 1 && base > 0;
@@ -225,6 +238,8 @@ export default function UnifiedMatrixView({ buildings, summary }) {
     else if (cats.has('clean1')    && hasAnyC1)                        { color = C.c1Full;     ratioTxt = `${c1DoneCount}/${units}`; }
     else if (cats.has('oiling')    && isOilLast)                       { color = C.oilLast;    dateVal  = fmtDate(s.oilDate[floor]); }
     else if (cats.has('oiling')    && oiled)                           { color = C.oilDone;    dateVal  = fmtDate(s.oilDate[floor]); }
+    else if (cats.has('slab')      && isSlabLast)                      { color = C.slabLast;   dateVal  = fmtDate(s.slabDate[floor]); }
+    else if (cats.has('slab')      && slabbed)                         { color = C.slabDone;   dateVal  = fmtDate(s.slabDate[floor]); }
     else if (isUnified && isETLast)                                    { color = C.etcLast;    dateVal  = fmtDate(s.etDate[floor]); }
     else if (isUnified && hasET)                                       { color = C.etcDone;    dateVal  = fmtDate(s.etDate[floor]); }
 
@@ -341,7 +356,8 @@ export default function UnifiedMatrixView({ buildings, summary }) {
                     s.clean2s > 0   ? C.c2Signed.bg :
                     s.clean2 > 0    ? C.c2Unsigned.bg :
                     s.clean1 > 0    ? C.c1Full.bg :
-                    s.oiling > 0    ? C.oilDone.bg : '#475569';
+                    s.oiling > 0    ? C.oilDone.bg :
+                    s.slab > 0      ? C.slabDone.bg : '#475569';
                   return (
                     <th key={b.id} className="p-0 bg-slate-800 border-l border-white/10"
                       style={{ width: 48, minWidth: 48 }}>

@@ -14,6 +14,7 @@ export default function RevenueProjection({ buildings }) {
   const [targetMonth, setTargetMonth] = useState('2026-05');
   const [oilingPrice, setOilingPrice] = useState(74000);
   const [cleaningPrice, setCleaningPrice] = useState(74000);
+  const [slabPrice, setSlabPrice] = useState(0);
 
   // 시뮬레이션 로직
   const projection = useMemo(() => {
@@ -44,6 +45,13 @@ export default function RevenueProjection({ buildings }) {
       }
       const oilingAmount = oilingBillable * unitCount * oilingPrice;
 
+      // 슬라브 계산 (박리제와 동일한 층 진행 구간 기준 — base_floor만 슬라브 전용 값 사용)
+      let slabBillable = 0;
+      for (let f = startFloor + 1; f <= endFloor; f++) {
+        if (f > (b.slab_base_floor || 0)) slabBillable++;
+      }
+      const slabAmount = slabBillable * unitCount * slabPrice;
+
       // 청소 계산 (박리제 층수 - 3 기준)
       let cleaningBillable = 0;
       for (let f = startFloor + 1; f <= endFloor; f++) {
@@ -59,9 +67,11 @@ export default function RevenueProjection({ buildings }) {
         endFloor,
         oilingBillable,
         oilingAmount,
+        slabBillable,
+        slabAmount,
         cleaningBillable,
         cleaningAmount,
-        total: oilingAmount + cleaningAmount,
+        total: oilingAmount + slabAmount + cleaningAmount,
         base_o: b.oiling_base_floor,
         base_c: b.cleaning_base_floor
       };
@@ -72,10 +82,11 @@ export default function RevenueProjection({ buildings }) {
     });
 
     const totalOiling = results.reduce((s, r) => s + r.oilingAmount, 0);
+    const totalSlab = results.reduce((s, r) => s + r.slabAmount, 0);
     const totalCleaning = results.reduce((s, r) => s + r.cleaningAmount, 0);
 
-    return { results, totalOiling, totalCleaning, total: totalOiling + totalCleaning, tuesdays };
-  }, [buildings, targetMonth, oilingPrice, cleaningPrice]);
+    return { results, totalOiling, totalSlab, totalCleaning, total: totalOiling + totalSlab + totalCleaning, tuesdays };
+  }, [buildings, targetMonth, oilingPrice, cleaningPrice, slabPrice]);
 
   if (!projection) return <div className="p-20 text-center text-outline">건물 정보가 없습니다.</div>;
 
@@ -107,6 +118,15 @@ export default function RevenueProjection({ buildings }) {
             />
           </div>
           <div className="flex flex-col">
+            <label className="text-[10px] font-black text-outline uppercase mb-1">슬라브 단가</label>
+            <input
+              type="number"
+              value={slabPrice}
+              onChange={e => setSlabPrice(Number(e.target.value))}
+              className="w-28 bg-surface border border-outline-variant/30 rounded-lg px-3 py-2 text-sm font-bold outline-none"
+            />
+          </div>
+          <div className="flex flex-col">
             <label className="text-[10px] font-black text-outline uppercase mb-1">청소 단가</label>
             <input 
               type="number" 
@@ -119,13 +139,21 @@ export default function RevenueProjection({ buildings }) {
       </div>
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 shadow-sm">
           <p className="text-xs font-bold text-primary uppercase tracking-widest mb-1">박리제 예상 수입</p>
           <p className="text-3xl font-black text-primary">{fmt(projection.totalOiling)}<span className="text-sm ml-1">원</span></p>
           <div className="mt-4 flex items-center gap-2 text-[10px] text-primary/70 font-bold">
             <span className="material-symbols-outlined text-sm">event</span>
             화요일 {projection.tuesdays}회 작업 예정
+          </div>
+        </div>
+        <div className="bg-amber-700/5 border border-amber-700/20 rounded-2xl p-6 shadow-sm">
+          <p className="text-xs font-bold text-amber-800 uppercase tracking-widest mb-1">슬라브 예상 수입</p>
+          <p className="text-3xl font-black text-amber-800">{fmt(projection.totalSlab)}<span className="text-sm ml-1">원</span></p>
+          <div className="mt-4 flex items-center gap-2 text-[10px] text-amber-800/70 font-bold">
+            <span className="material-symbols-outlined text-sm">event</span>
+            박리제와 동일 진행 구간 기준
           </div>
         </div>
         <div className="bg-secondary/5 border border-secondary/20 rounded-2xl p-6 shadow-sm">
@@ -159,6 +187,7 @@ export default function RevenueProjection({ buildings }) {
                 <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest text-center">세대수</th>
                 <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest text-center">진행(F)</th>
                 <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest text-right">박리제(유상)</th>
+                <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest text-right">슬라브(유상)</th>
                 <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest text-right">청소(유상)</th>
                 <th className="px-6 py-3 text-[10px] font-black text-outline uppercase tracking-widest">비고</th>
               </tr>
@@ -177,6 +206,12 @@ export default function RevenueProjection({ buildings }) {
                     <div className="flex flex-col">
                       <span className="font-black text-primary">{fmt(r.oilingAmount)}원</span>
                       <span className="text-[10px] text-outline">{r.oilingBillable}개층 유상</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex flex-col">
+                      <span className="font-black text-amber-800">{fmt(r.slabAmount)}원</span>
+                      <span className="text-[10px] text-outline">{r.slabBillable}개층 유상</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">

@@ -7,17 +7,19 @@ function MonthlyClosing({ siteId, token }) {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [includeForeman, setIncludeForeman] = useState(true);
+  const [priceMode, setPriceMode] = useState('billing'); // 'payment'(지급단가) | 'billing'(청구단가)
 
   useEffect(() => {
     if (month && siteId) {
       fetchData();
     }
-  }, [month, siteId]);
+  }, [month, siteId, includeForeman, priceMode]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/closing/monthly?month=${month}`, {
+      const res = await fetch(`${API_BASE}/closing/monthly?month=${month}&include_foreman=${includeForeman}&price_mode=${priceMode}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Site-Id': siteId
@@ -38,7 +40,7 @@ function MonthlyClosing({ siteId, token }) {
   const handleExport = async () => {
     if (!month) return;
     try {
-      const res = await fetch(`${API_BASE}/export/closing?month=${month}`, {
+      const res = await fetch(`${API_BASE}/export/closing?month=${month}&include_foreman=${includeForeman}&price_mode=${priceMode}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'X-Site-Id': siteId
@@ -77,6 +79,34 @@ function MonthlyClosing({ siteId, token }) {
             onChange={(e) => setMonth(e.target.value)}
             className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <div className="flex bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setIncludeForeman(true)}
+              className={`px-3 py-2 text-sm font-medium rounded transition-colors ${includeForeman ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              팀장 포함
+            </button>
+            <button
+              onClick={() => setIncludeForeman(false)}
+              className={`px-3 py-2 text-sm font-medium rounded transition-colors ${!includeForeman ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              팀장 제외
+            </button>
+          </div>
+          <div className="flex bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setPriceMode('payment')}
+              className={`px-3 py-2 text-sm font-medium rounded transition-colors ${priceMode === 'payment' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              지급단가
+            </button>
+            <button
+              onClick={() => setPriceMode('billing')}
+              className={`px-3 py-2 text-sm font-medium rounded transition-colors ${priceMode === 'billing' ? 'bg-blue-600 text-white shadow' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              청구단가
+            </button>
+          </div>
           <button
             onClick={handleExport}
             className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded shadow transition-colors"
@@ -100,8 +130,8 @@ function MonthlyClosing({ siteId, token }) {
                   <th key={day} className="px-2 py-3 font-semibold text-center border-b border-r min-w-[40px]">{day}</th>
                 ))}
                 <th className="px-3 py-3 font-semibold text-center border-b border-l border-r bg-blue-50 whitespace-nowrap">총 공수</th>
-                <th className="px-3 py-3 font-semibold text-right border-b border-r bg-blue-50 whitespace-nowrap">적용 단가</th>
-                <th className="px-3 py-3 font-semibold text-right border-b bg-blue-50 whitespace-nowrap">총 노무비</th>
+                <th className="px-3 py-3 font-semibold text-right border-b border-r bg-blue-50 whitespace-nowrap">적용 단가({priceMode === 'billing' ? '청구' : '지급'})</th>
+                <th className="px-3 py-3 font-semibold text-right border-b bg-blue-50 whitespace-nowrap">{priceMode === 'billing' ? '총 청구액' : '총 노무비'}</th>
               </tr>
             </thead>
             <tbody>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dayjs from 'dayjs';
 
 const API = '/api';
@@ -12,6 +12,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
   const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
   const [oilingPrice, setOilingPrice] = useState(74000);
   const [cleaningPrice, setCleaningPrice] = useState(74000);
+  const [slabPrice, setSlabPrice] = useState(0);
   const [periodMode, setPeriodMode] = useState('split');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -39,6 +40,20 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
   }, [siteId, token]);
 
   useEffect(() => { fetchClosedMonths(); }, [fetchClosedMonths]);
+
+  // 저장된 단가 설정(기준정보 > 단가 설정)을 기본값으로 불러옴 — 화면에서 임시 수정은 계속 가능
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API}/site-config`, { headers: { Authorization: `Bearer ${token}`, 'X-Site-Id': siteId } })
+      .then(r => r.json())
+      .then(cfg => {
+        if (cfg?.oiling_price != null) setOilingPrice(parseInt(cfg.oiling_price) || 0);
+        if (cfg?.cleaning_price != null) setCleaningPrice(parseInt(cfg.cleaning_price) || 0);
+        if (cfg?.slab_price != null) setSlabPrice(parseInt(cfg.slab_price) || 0);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, token]);
 
   // 마감 실행 (confirm 없이 순수 API 호출)
   const performClose = async () => {
@@ -76,29 +91,38 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
     setClosingInProgress(false);
   };
 
+  // 단가(oilingPrice 등)는 site-config 조회가 끝나기 전/후로 두 번 바뀔 수 있어
+  // load()도 두 번 이상 호출된다. 먼저 보낸 요청의 응답이 나중에 도착하면 최신 값을
+  // 덮어쓸 수 있으므로, 가장 마지막에 보낸 요청의 응답만 반영한다.
+  const requestIdRef = useRef(0);
   const load = useCallback(async () => {
     if (!token) return;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${token}`, 'X-Site-Id': siteId };
-      const p = new URLSearchParams({ month, oiling_price: oilingPrice, cleaning_price: cleaningPrice, period_mode: periodMode });
+      const p = new URLSearchParams({ month, oiling_price: oilingPrice, cleaning_price: cleaningPrice, slab_price: slabPrice, period_mode: periodMode });
       const res = await fetch(`${API}/analysis/monthly?${p}`, { headers });
       const json = await res.json();
-      setData(json);
+      if (requestId === requestIdRef.current) setData(json);
     } catch (e) {
       console.error('Data Loading Error:', e);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [month, oilingPrice, cleaningPrice, periodMode, siteId, token]);
+  }, [month, oilingPrice, cleaningPrice, slabPrice, periodMode, siteId, token]);
 
   useEffect(() => { load(); }, [load]);
 
   const oilingDetails = data?.oiling?.details || [];
+  const slabDetails = data?.slab?.details || [];
   const cleaningDetails = data?.cleaning?.details || [];
   const filteredOiling = selectedBuilding ? oilingDetails.filter(r => r.building === selectedBuilding) : oilingDetails;
+  const filteredSlab = selectedBuilding ? slabDetails.filter(r => r.building === selectedBuilding) : slabDetails;
   const filteredCleaning = selectedBuilding ? cleaningDetails.filter(r => r.building === selectedBuilding) : cleaningDetails;
   const filteredExtra = (data?.cleaning_extra || []).filter(r => !selectedBuilding || r.building === selectedBuilding);
+  const comboDetails = data?.combo?.details || [];
+  const filteredCombo = selectedBuilding ? comboDetails.filter(r => r.building === selectedBuilding) : comboDetails;
 
   // 1차/2차 동별 합계 (cleaningDetails에서 직접 집계)
   const cleaningPhase1ByBuilding = useMemo(() => {
@@ -161,16 +185,24 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
       const oilingBlds  = data.oiling?.by_building || [];
       const oilingTotal = data.oiling?.total || 0;
       const oilingUnits = oilingBlds.reduce((s, b) => s + b.total_units, 0);
+      const slabBlds  = data.slab?.by_building || [];
+      const slabTotal = data.slab?.total || 0;
+      const slabUnits = slabBlds.reduce((s, b) => s + b.total_units, 0);
       const ph1Blds = cleaningPhase1ByBuilding;
       const ph2Blds = cleaningPhase2ByBuilding;
       const ph1Total = ph1Blds.reduce((s, b) => s + b.billable_amount, 0);
       const ph2Total = ph2Blds.reduce((s, b) => s + b.billable_amount, 0);
       const ph1Units = ph1Blds.reduce((s, b) => s + b.total_units, 0);
       const ph2Units = ph2Blds.reduce((s, b) => s + b.total_units, 0);
+      const comboBlds  = data.combo?.by_building || [];
+      const comboTotal = data.combo?.total || 0;
+      const comboFloors = comboBlds.reduce((s, b) => s + b.total_units, 0);
       const extras  = data.cleaning_extra || [];
       const workers = data.expense?.workers || [];
-      const laborTotal  = data.expense?.total || 0;
-      const grandTotal  = oilingTotal + ph1Total + ph2Total;
+      const laborTotal  = data.expense?.labor_total || 0;
+      const mealTotal   = data.expense?.meal_total || 0;
+      const expenseGrandTotal = data.expense?.grand_total || 0;
+      const grandTotal  = oilingTotal + slabTotal + ph1Total + ph2Total + comboTotal;
 
       // 동별 오일링 층 상세 (is_billable 기준, 날짜 포함)
       const oilFloorsByBld = {};
@@ -178,6 +210,14 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         if (!rec.is_billable) return;
         if (!oilFloorsByBld[rec.building]) oilFloorsByBld[rec.building] = [];
         oilFloorsByBld[rec.building].push(rec);
+      });
+
+      // 동별 슬라브 층 상세 (is_billable 기준, 날짜 포함)
+      const slabFloorsByBld = {};
+      (data.slab?.details || []).forEach(rec => {
+        if (!rec.is_billable) return;
+        if (!slabFloorsByBld[rec.building]) slabFloorsByBld[rec.building] = [];
+        slabFloorsByBld[rec.building].push(rec);
       });
 
       // 동별 청소 층 상세 (is_billable 기준, 날짜 있으면 포함)
@@ -318,30 +358,31 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
 
         rows.forEach(rd=>{
           rd.forEach((v,i)=>{
-            const isLast = i===rd.length-1 && typeof v==='number';
-            const isWrap = i===4;
+            const isNum = typeof v === 'number';
+            const isWrap = i===4 && !isNum;
             const al = isWrap ? {wrapText:true,vertical:'middle'}
-                     : isLast ? {horizontal:'right',vertical:'middle'}
+                     : isNum ? {horizontal:'right',vertical:'middle'}
                      : MID;
             const cl = cell(ws1,r,i+3,v,{align:al});
-            if(isLast) cl.numFmt='#,##0';
+            if(isNum) cl.numFmt='#,##0';
           });
           r++;
         });
 
         if(subtotal){
           subtotal.forEach((v,i)=>{
-            const isLast = i===subtotal.length-1 && typeof v==='number';
-            const al = isLast ? {horizontal:'right',vertical:'middle'} : MID;
+            const isNum = typeof v === 'number';
+            const al = isNum ? {horizontal:'right',vertical:'middle'} : MID;
             const cl = cell(ws1,r,i+3,v,{bold:true,align:al});
-            if(isLast) cl.numFmt='#,##0';
+            if(isNum) cl.numFmt='#,##0';
           });
           r++;
         }
         blank();
       };
 
-      section(1,'갱폼 박리제 도급 내역',
+      let secNum = 1;
+      section(secNum++,'갱폼 박리제 도급 내역',
         ['동','세대','구간','층수','작업층/세대수/일자','금액'],
         oilingBlds.map(b => {
           const {구간, 층수, detail} = computeDetail(oilFloorsByBld[b.building]||[], 'units');
@@ -349,7 +390,17 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         }),
         ['소계',`${oilingUnits}세대`,'','','',oilingTotal]
       );
-      section(2,'1차 세대청소 도급 내역',
+      if (slabBlds.length > 0) {
+        section(secNum++,'슬라브 도급 내역',
+          ['동','세대','구간','층수','작업층/세대수/일자','금액'],
+          slabBlds.map(b => {
+            const {구간, 층수, detail} = computeDetail(slabFloorsByBld[b.building]||[], 'units');
+            return [b.building, `${b.total_units}세대`, 구간, 층수, detail||b.remark||'', b.billable_amount];
+          }),
+          ['소계',`${slabUnits}세대`,'','','',slabTotal]
+        );
+      }
+      section(secNum++,'1차 세대청소 도급 내역',
         ['동','세대','구간','층수','작업층/세대수/일자','금액'],
         ph1Blds.map(b => {
           const {구간, 층수, detail} = computeDetail(cleanFloorsByBld[1]?.[b.building]||[], 'total');
@@ -357,7 +408,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         }),
         ['소계',`${ph1Units}세대`,'','','',ph1Total]
       );
-      section(3,'2차 세대청소 도급 내역',
+      section(secNum++,'2차 세대청소 도급 내역',
         ['동','세대','구간','층수','작업층/세대수/일자','금액'],
         ph2Blds.map(b => {
           const {구간, 층수, detail} = computeDetail(cleanFloorsByBld[2]?.[b.building]||[], 'total');
@@ -365,8 +416,13 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         }),
         ['소계',`${ph2Units}세대`,'','','',ph2Total]
       );
-
-      let secNum = 4;
+      if(comboBlds.length > 0){
+        section(secNum++,'결합과금(층별) 도급 내역',
+          ['동','완료층수','','','작업층 내역','금액'],
+          comboBlds.map(b => [b.building, `${b.total_units}개층`, '', '', b.remark||'', b.billable_amount]),
+          ['소계',`${comboFloors}개층`,'','','',comboTotal]
+        );
+      }
       if(extras.length > 0){
         section(secNum++,'기타 작업 내역 (별도 청구)',
           ['동','작업 내용','비고(날짜)',''],
@@ -375,10 +431,10 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         );
       }
       if(workers.length > 0){
-        section(secNum,'인건비',
-          ['작업자','공수(MD)','단가','','','금액'],
-          workers.map(w=>[w.name, parseFloat((w.total_md||0).toFixed(2)), w.unit_price||0, '','', w.amount||0]),
-          ['합계','','','','',laborTotal]
+        section(secNum,'인건비 + 식비',
+          ['작업자','공수(MD)','단가','노무비','식비','합계'],
+          workers.map(w=>[w.name, parseFloat((w.total_md||0).toFixed(2)), w.unit_price||0, w.amount||0, w.meal_amount||0, w.total||0]),
+          ['합계','','',laborTotal,mealTotal,expenseGrandTotal]
         );
       }
 
@@ -397,11 +453,11 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
       // ── Sheet 2: 인건비 ─────────────────────────────────────────────────
       if(workers.length > 0){
         const ws2 = wb.addWorksheet('인건비');
-        ws2.columns=[{width:6},{width:16},{width:12},{width:14},{width:14}];
+        ws2.columns=[{width:6},{width:16},{width:12},{width:14},{width:14},{width:14},{width:14}];
         let r2=1;
-        [1,2,3,4,5].forEach(c=>cell(ws2,r2,c,c===1?`${monthNum}월 인건비`:null,c===1?{bold:true,align:MID}:{align:MID}));
+        [1,2,3,4,5,6,7].forEach(c=>cell(ws2,r2,c,c===1?`${monthNum}월 인건비 + 식비`:null,c===1?{bold:true,align:MID}:{align:MID}));
         r2++;
-        ['순번','작업자 이름','총 공수(MD)','적용 단가','총 노무비'].forEach((h,i)=>
+        ['순번','작업자 이름','총 공수(MD)','적용 단가','노무비','식비','합계'].forEach((h,i)=>
           cell(ws2,r2,i+1,h,{fill:FILL_H,align:{horizontal:'center',vertical:'middle'}})
         );
         r2++;
@@ -411,11 +467,15 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           cell(ws2,r2,3,parseFloat((w.total_md||0).toFixed(2)),{align:{horizontal:'center',vertical:'middle'}});
           const u=cell(ws2,r2,4,w.unit_price||0,{align:MID}); u.numFmt='#,##0'; u.alignment={horizontal:'right',vertical:'middle'};
           const a=cell(ws2,r2,5,w.amount||0,{align:MID}); a.numFmt='#,##0'; a.alignment={horizontal:'right',vertical:'middle'};
+          const m=cell(ws2,r2,6,w.meal_amount||0,{align:MID}); m.numFmt='#,##0'; m.alignment={horizontal:'right',vertical:'middle'};
+          const t=cell(ws2,r2,7,w.total||0,{align:MID}); t.numFmt='#,##0'; t.alignment={horizontal:'right',vertical:'middle'};
           r2++;
         });
         cell(ws2,r2,1,null,{align:MID}); cell(ws2,r2,2,'합계',{bold:true,align:MID});
         cell(ws2,r2,3,null,{align:MID}); cell(ws2,r2,4,null,{align:MID});
         const lt=cell(ws2,r2,5,laborTotal,{bold:true,align:MID}); lt.numFmt='#,##0'; lt.alignment={horizontal:'right',vertical:'middle'};
+        const mt=cell(ws2,r2,6,mealTotal,{bold:true,align:MID}); mt.numFmt='#,##0'; mt.alignment={horizontal:'right',vertical:'middle'};
+        const gt=cell(ws2,r2,7,expenseGrandTotal,{bold:true,align:MID}); gt.numFmt='#,##0'; gt.alignment={horizontal:'right',vertical:'middle'};
       }
 
       // ── Sheet 3: 청소 (갱폼/1차/2차 섹션, 날짜별) ──────────────────────
@@ -481,6 +541,20 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
         });
       ws3Section('갱폼 박리제', oilWs3Rows);
 
+      // 슬라브 (slabDetails에 날짜 있음)
+      const slabWs3Rows = [...(data.slab?.details||[])]
+        .sort((a,b)=>{
+          if(a.date!==b.date) return a.date.localeCompare(b.date);
+          const an=parseInt(a.building.replace(/[^0-9]/g,''))||0;
+          const bn=parseInt(b.building.replace(/[^0-9]/g,''))||0;
+          return an!==bn?an-bn:a.floor-b.floor;
+        })
+        .map(rec=>{
+          const [,fm,fd]=(rec.date||'').split('-');
+          return [fm&&fd?`${parseInt(fm)}/${parseInt(fd)}`:rec.date||'', rec.building, rec.floor, rec.units, rec.amount||0];
+        });
+      ws3Section('슬라브', slabWs3Rows);
+
       // 날짜별 원시 기록 우선, 없으면 집계 데이터(날짜 없음)로 대체
       const toCleanRows = (rawList, phBlds) => {
         if(rawList.length) return rawList.map(g=>{
@@ -522,7 +596,9 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
     if (!data) return [];
     const buildings = Array.from(new Set([
       ...(data.oiling?.by_building || []).map(b => b.building),
-      ...(data.cleaning?.by_building || []).map(b => b.building)
+      ...(data.slab?.by_building || []).map(b => b.building),
+      ...(data.cleaning?.by_building || []).map(b => b.building),
+      ...(data.combo?.by_building || []).map(b => b.building)
     ]));
     return buildings.sort((a, b) => {
       const numA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
@@ -611,7 +687,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">분석 월</label>
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">박리제 단가</label>
             <input type="number" value={oilingPrice} onChange={(e) => setOilingPrice(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
@@ -619,6 +695,10 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">청소 단가</label>
             <input type="number" value={cleaningPrice} onChange={(e) => setCleaningPrice(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">슬라브 단가</label>
+            <input type="number" value={slabPrice} onChange={(e) => setSlabPrice(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold outline-none" />
           </div>
         </div>
         <div>
@@ -636,12 +716,15 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
 
       {/* 요약 카드 */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-8 gap-3">
           {[
             { label:'갱폼 수입',   val: data.oiling?.total,    color:'text-blue-600',    bg:'bg-blue-50' },
+            { label:'슬라브 수입', val: data.slab?.total,      color:'text-amber-700',   bg:'bg-amber-50' },
             { label:'청소 수입',   val: data.cleaning?.total,  color:'text-green-600',   bg:'bg-green-50' },
+            { label:'결합과금 수입', val: data.combo?.total,   color:'text-purple-600',  bg:'bg-purple-50' },
             { label:'합계 수입',   val: data.summary?.income,  color:'text-primary',     bg:'bg-primary/5' },
             { label:'인건비 지출', val: data.expense?.total,   color:'text-red-600',     bg:'bg-red-50' },
+            { label:'식비 지출',   val: data.expense?.meal_total, color:'text-amber-700', bg:'bg-amber-50' },
             { label:'순수익',      val: data.summary?.net,     color:'text-emerald-700', bg:'bg-emerald-50' },
           ].map(c => (
             <div key={c.label} className={`${c.bg} rounded-xl p-4 border border-outline-variant/20`}>
@@ -692,6 +775,78 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
               </div>
             ))}
           </div>
+
+          {/* 슬라브 */}
+          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+            <div className="bg-amber-700/10 px-4 py-3 border-b border-outline-variant/20">
+              <h3 className="font-bold text-sm text-amber-800">슬라브 동별 합계</h3>
+            </div>
+            <table className="w-full text-xs">
+              <thead><tr className="border-b border-outline-variant/10 bg-surface-dim/10">
+                <th className="px-3 py-2 text-left text-outline">동</th>
+                <th className="px-2 py-2 text-center text-outline">세대</th>
+                <th className="px-2 py-2 text-right text-outline">확정금액</th>
+              </tr></thead>
+              <tbody>
+                {(data?.slab?.by_building || []).map(b => (
+                  <tr key={b.building}
+                    onClick={() => setSelectedBuilding(selectedBuilding === b.building ? null : b.building)}
+                    className={`cursor-pointer border-b border-outline-variant/10 hover:bg-amber-50 transition-colors ${selectedBuilding === b.building ? 'bg-amber-100' : ''}`}>
+                    <td className="px-3 py-2 font-bold text-primary">{b.building}</td>
+                    <td className="px-2 py-2 text-center">{b.total_units}세대</td>
+                    <td className="px-2 py-2 text-right font-bold">{fmt(b.billable_amount)}원</td>
+                  </tr>
+                ))}
+                {data && <tr className="bg-amber-50 font-black">
+                  <td className="px-3 py-2 text-amber-800">소계</td>
+                  <td className="px-2 py-2 text-center text-amber-800">{(data.slab?.by_building||[]).reduce((s,b)=>s+b.total_units,0)}세대</td>
+                  <td className="px-2 py-2 text-right text-amber-800">{fmt(data.slab?.total)}원</td>
+                </tr>}
+              </tbody>
+            </table>
+            {(data?.slab?.by_building || []).filter(b => !selectedBuilding || b.building === selectedBuilding).map(b => b.remark && (
+              <div key={b.building} className="px-3 py-1 text-xs text-outline border-t border-outline-variant/10">
+                <span className="font-bold text-amber-800">{b.building}</span> {b.remark}
+              </div>
+            ))}
+          </div>
+
+          {/* 결합과금(층별) — 갱폼박리+세대청소 동시완료 시 층당 고정금액 청구되는 건물 */}
+          {(data?.combo?.by_building || []).length > 0 && (
+            <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+              <div className="bg-purple-600/10 px-4 py-3 border-b border-outline-variant/20">
+                <h3 className="font-bold text-sm text-purple-700">결합과금(층별) 동별 합계</h3>
+              </div>
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-outline-variant/10 bg-surface-dim/10">
+                  <th className="px-3 py-2 text-left text-outline">동</th>
+                  <th className="px-2 py-2 text-center text-outline">완료 층수</th>
+                  <th className="px-2 py-2 text-right text-outline">확정금액</th>
+                </tr></thead>
+                <tbody>
+                  {(data?.combo?.by_building || []).map(b => (
+                    <tr key={b.building}
+                      onClick={() => setSelectedBuilding(selectedBuilding === b.building ? null : b.building)}
+                      className={`cursor-pointer border-b border-outline-variant/10 hover:bg-primary/5 transition-colors ${selectedBuilding === b.building ? 'bg-primary/10' : ''}`}>
+                      <td className="px-3 py-2 font-bold text-primary">{b.building}</td>
+                      <td className="px-2 py-2 text-center">{b.total_units}개층</td>
+                      <td className="px-2 py-2 text-right font-bold">{fmt(b.billable_amount)}원</td>
+                    </tr>
+                  ))}
+                  {data && <tr className="bg-purple-50 font-black">
+                    <td className="px-3 py-2 text-purple-700">소계</td>
+                    <td className="px-2 py-2 text-center text-purple-700">{(data.combo?.by_building||[]).reduce((s,b)=>s+b.total_units,0)}개층</td>
+                    <td className="px-2 py-2 text-right text-purple-700">{fmt(data.combo?.total)}원</td>
+                  </tr>}
+                </tbody>
+              </table>
+              {(data?.combo?.by_building || []).filter(b => !selectedBuilding || b.building === selectedBuilding).map(b => b.remark && (
+                <div key={b.building} className="px-3 py-1 text-xs text-outline border-t border-outline-variant/10">
+                  <span className="font-bold text-primary">{b.building}</span> {b.remark}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* 1차 세대청소 */}
           <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
@@ -777,7 +932,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           {data && (
             <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl border border-primary/20 p-4 space-y-2">
               <h3 className="font-bold text-sm text-primary">손익 요약</h3>
-              {[['수입',data.summary?.income,'text-green-700'],['지출',data.expense?.total,'text-red-600'],['순수익',data.summary?.net,'text-primary font-black text-lg']].map(([l,v,c]) => (
+              {[['수입',data.summary?.income,'text-green-700'],['지출(인건비+식비)',data.expense?.grand_total,'text-red-600'],['순수익',data.summary?.net,'text-primary font-black text-lg']].map(([l,v,c]) => (
                 <div key={l} className="flex justify-between text-sm">
                   <span className="text-outline font-bold">{l}</span>
                   <span className={c}>{fmt(v)}원</span>
@@ -800,7 +955,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
 
           {/* 탭 */}
           <div className="flex border-b border-outline-variant/20 no-print">
-            {[['oiling','갱폼 박리제'],['cleaning','세대청소'],['expense','인건비'],['extra','기타작업']].map(([id,label]) => (
+            {[['oiling','갱폼 박리제'],['slab','슬라브'],['cleaning','세대청소'],['combo','결합과금'],['expense','인건비/식비'],['extra','기타작업']].map(([id,label]) => (
               <button key={id} onClick={() => setRightTab(id)}
                 className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${rightTab===id ? 'border-primary text-primary' : 'border-transparent text-outline hover:text-on-surface'}`}>{label}</button>
             ))}
@@ -830,6 +985,30 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
             </div>
           )}
 
+          {/* 슬라브 상세 */}
+          {rightTab === 'slab' && (
+            <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-surface-dim/20 border-b border-outline-variant/20">
+                  {['날짜','동','층','기준층','세대수','금액'].map(h=><th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
+                </tr></thead>
+                <tbody className="divide-y divide-outline-variant/10">
+                  {filteredSlab.map((r,i) => (
+                    <tr key={i} className={`${!r.is_billable ? 'bg-gray-50 opacity-60' : 'hover:bg-amber-50'} transition-colors`}>
+                      <td className="px-3 py-2 font-mono">{r.date?.slice(5)}</td>
+                      <td className="px-3 py-2 font-bold text-primary">{r.building}</td>
+                      <td className="px-3 py-2">{floorLabel(r.floor)}</td>
+                      <td className="px-3 py-2">{r.is_billable ? <span className="text-green-600 font-bold">✅ 청구</span> : <span className="text-red-500 font-bold">⛔ 제외</span>}</td>
+                      <td className="px-3 py-2 text-center">{r.units}세대</td>
+                      <td className={`px-3 py-2 font-bold ${r.is_billable ? 'text-amber-800' : 'text-gray-400 line-through'}`}>{r.is_billable ? `${fmt(r.amount)}원` : '-'}</td>
+                    </tr>
+                  ))}
+                  {filteredSlab.length===0 && <tr><td colSpan="6" className="py-8 text-center text-outline">데이터 없음</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* 세대청소 상세 */}
           {rightTab === 'cleaning' && (
             <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
@@ -854,12 +1033,35 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
             </div>
           )}
 
+          {/* 결합과금 상세 */}
+          {rightTab === 'combo' && (
+            <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead><tr className="bg-surface-dim/20 border-b border-outline-variant/20">
+                  {['완료일','동','층','구간','금액'].map(h=><th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
+                </tr></thead>
+                <tbody className="divide-y divide-outline-variant/10">
+                  {filteredCombo.map((r,i) => (
+                    <tr key={i} className="hover:bg-purple-50 transition-colors">
+                      <td className="px-3 py-2 font-mono">{r.date?.slice(5)}</td>
+                      <td className="px-3 py-2 font-bold text-primary">{r.building}</td>
+                      <td className="px-3 py-2">{floorLabel(r.floor)}</td>
+                      <td className="px-3 py-2">{r.tier}</td>
+                      <td className="px-3 py-2 font-bold text-purple-700">{fmt(r.amount)}원</td>
+                    </tr>
+                  ))}
+                  {filteredCombo.length===0 && <tr><td colSpan="5" className="py-8 text-center text-outline">데이터 없음</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* 인건비 */}
           {rightTab === 'expense' && (
             <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden">
               <table className="w-full text-xs">
                 <thead><tr className="bg-surface-dim/20 border-b border-outline-variant/20">
-                  {['작업자','공수(MD)','단가','금액'].map(h=><th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
+                  {['작업자','공수(MD)','단가','노무비','식비','합계'].map(h=><th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
                 </tr></thead>
                 <tbody className="divide-y divide-outline-variant/10">
                   {(data?.expense?.workers||[]).map((w,i) => (
@@ -867,14 +1069,20 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
                       <td className="px-3 py-2 font-bold">{w.name}</td>
                       <td className="px-3 py-2">{w.total_md?.toFixed(2)} MD</td>
                       <td className="px-3 py-2">{fmt(w.unit_price)}원</td>
-                      <td className="px-3 py-2 font-bold text-red-600">{fmt(w.amount)}원</td>
+                      <td className="px-3 py-2 text-red-600">{fmt(w.amount)}원</td>
+                      <td className="px-3 py-2 text-amber-700">{fmt(w.meal_amount)}원</td>
+                      <td className="px-3 py-2 font-bold text-red-700">{fmt(w.total)}원</td>
                     </tr>
                   ))}
                   {data && <tr className="bg-red-50 font-black">
-                    <td colSpan="3" className="px-3 py-2 text-red-700">합계</td>
-                    <td className="px-3 py-2 text-red-700">{fmt(data.expense?.total)}원</td>
+                    <td className="px-3 py-2 text-red-700">합계</td>
+                    <td className="px-3 py-2 text-red-700">{(data.expense?.workers||[]).reduce((s,w)=>s+(w.total_md||0),0).toFixed(2)} MD</td>
+                    <td className="px-3 py-2 text-red-700">-</td>
+                    <td className="px-3 py-2 text-red-700">{fmt(data.expense?.labor_total)}원</td>
+                    <td className="px-3 py-2 text-red-700">{fmt(data.expense?.meal_total)}원</td>
+                    <td className="px-3 py-2 text-red-700">{fmt(data.expense?.grand_total)}원</td>
                   </tr>}
-                  {(data?.expense?.workers||[]).length===0 && <tr><td colSpan="4" className="py-8 text-center text-outline">데이터 없음</td></tr>}
+                  {(data?.expense?.workers||[]).length===0 && <tr><td colSpan="6" className="py-8 text-center text-outline">데이터 없음</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -925,7 +1133,19 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           </table>
         </div>
         <div>
-          <h2 className="font-bold text-lg mb-2">2. 1차 세대청소 도급 내역</h2>
+          <h2 className="font-bold text-lg mb-2">2. 슬라브 도급 내역</h2>
+          <table className="w-full border-collapse border border-gray-300 text-sm">
+            <thead><tr className="bg-gray-100"><th className="border border-gray-300 p-2">동</th><th className="border border-gray-300 p-2">세대</th><th className="border border-gray-300 p-2">작업층/세대수</th><th className="border border-gray-300 p-2">금액</th></tr></thead>
+            <tbody>
+              {(data?.slab?.by_building||[]).map(b=>(
+                <tr key={b.building}><td className="border border-gray-300 p-2 font-bold">{b.building}</td><td className="border border-gray-300 p-2 text-center">{b.total_units}세대</td><td className="border border-gray-300 p-2">{b.remark}</td><td className="border border-gray-300 p-2 text-right font-bold">{fmt(b.billable_amount)}원</td></tr>
+              ))}
+              <tr className="bg-amber-50 font-black"><td className="border border-gray-300 p-2">소계</td><td className="border border-gray-300 p-2 text-center">{(data?.slab?.by_building||[]).reduce((s,b)=>s+b.total_units,0)}세대</td><td className="border border-gray-300 p-2"></td><td className="border border-gray-300 p-2 text-right text-amber-800">{fmt(data?.slab?.total)}원</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h2 className="font-bold text-lg mb-2">3. 1차 세대청소 도급 내역</h2>
           <table className="w-full border-collapse border border-gray-300 text-sm">
             <thead><tr className="bg-gray-100"><th className="border border-gray-300 p-2">동</th><th className="border border-gray-300 p-2">세대</th><th className="border border-gray-300 p-2">금액</th></tr></thead>
             <tbody>
@@ -937,7 +1157,7 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
           </table>
         </div>
         <div>
-          <h2 className="font-bold text-lg mb-2">3. 2차 세대청소 도급 내역</h2>
+          <h2 className="font-bold text-lg mb-2">4. 2차 세대청소 도급 내역</h2>
           <table className="w-full border-collapse border border-gray-300 text-sm">
             <thead><tr className="bg-gray-100"><th className="border border-gray-300 p-2">동</th><th className="border border-gray-300 p-2">세대</th><th className="border border-gray-300 p-2">금액</th></tr></thead>
             <tbody>
@@ -948,9 +1168,23 @@ export default function MonthlyAnalysis2({ currentSite, buildings = [] }) {
             </tbody>
           </table>
         </div>
+        {(data?.combo?.by_building||[]).length > 0 && (
+          <div>
+            <h2 className="font-bold text-lg mb-2">5. 결합과금(층별) 도급 내역</h2>
+            <table className="w-full border-collapse border border-gray-300 text-sm">
+              <thead><tr className="bg-gray-100"><th className="border border-gray-300 p-2">동</th><th className="border border-gray-300 p-2">완료 층수</th><th className="border border-gray-300 p-2">층 내역</th><th className="border border-gray-300 p-2">금액</th></tr></thead>
+              <tbody>
+                {(data?.combo?.by_building||[]).map(b=>(
+                  <tr key={b.building}><td className="border border-gray-300 p-2 font-bold">{b.building}</td><td className="border border-gray-300 p-2 text-center">{b.total_units}개층</td><td className="border border-gray-300 p-2">{b.remark}</td><td className="border border-gray-300 p-2 text-right font-bold">{fmt(b.billable_amount)}원</td></tr>
+                ))}
+                <tr className="bg-purple-50 font-black"><td className="border border-gray-300 p-2">소계</td><td className="border border-gray-300 p-2 text-center">{(data?.combo?.by_building||[]).reduce((s,b)=>s+b.total_units,0)}개층</td><td className="border border-gray-300 p-2"></td><td className="border border-gray-300 p-2 text-right text-purple-700">{fmt(data?.combo?.total)}원</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
         {(data?.cleaning_extra||[]).length > 0 && (
           <div>
-            <h2 className="font-bold text-lg mb-2">4. 기타 작업 내역 (별도 청구)</h2>
+            <h2 className="font-bold text-lg mb-2">6. 기타 작업 내역 (별도 청구)</h2>
             <table className="w-full border-collapse border border-gray-300 text-sm">
               <thead><tr className="bg-gray-100"><th className="border border-gray-300 p-2">동</th><th className="border border-gray-300 p-2">작업내용</th><th className="border border-gray-300 p-2">날짜</th></tr></thead>
               <tbody>{(data?.cleaning_extra||[]).map((r,i)=><tr key={i}><td className="border border-gray-300 p-2 font-bold">{r.building}</td><td className="border border-gray-300 p-2">{r.label}</td><td className="border border-gray-300 p-2">{r.date}</td></tr>)}</tbody>

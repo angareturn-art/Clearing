@@ -15,9 +15,18 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [weatherCache, setWeatherCache] = useState({});
   const [showDailyAmount, setShowDailyAmount] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(() => localStorage.getItem('clearing_show_schedule') === 'true'); // 브라우저별 로컬 설정, 기본 off
+  const toggleShowSchedule = () => {
+    setShowSchedule((prev) => {
+      const next = !prev;
+      localStorage.setItem('clearing_show_schedule', String(next));
+      return next;
+    });
+  };
   const [filterBuilding, setFilterBuilding] = useState(null); // null = 전체 동
   const [monthlyAnalysis, setMonthlyAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState(null);
+  const [personnelRecords, setPersonnelRecords] = useState([]);
   const [scheduleEvents, setScheduleEvents] = useState([]);
   const [eventForm, setEventForm] = useState(null); // null = 닫힘, {} = 새 일정, {id,...} = 수정
 
@@ -42,9 +51,11 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
     const formattedDate = date.format('YYYY-MM-DD');
     const byBuilding = (r) => !filterBuilding || r.building_id === Number(filterBuilding);
     const oiling = (summary.oiling || []).filter(r => r.date === formattedDate && byBuilding(r));
+    const slab = (summary.slab || []).filter(r => r.date === formattedDate && byBuilding(r));
     const cleaning = (summary.cleaning || []).filter(r => r.date === formattedDate && byBuilding(r));
     const unloading = (summary.unloading || []).filter(r => r.date === formattedDate && byBuilding(r));
-    return { oiling, cleaning, unloading };
+    const misc = (summary.misc || []).filter(r => r.date === formattedDate && byBuilding(r));
+    return { oiling, slab, cleaning, unloading, misc };
   };
 
   const getMonthTotalAmount = () => {
@@ -56,12 +67,15 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
     return BUILDING_COLORS[(idx >= 0 ? idx : 0) % BUILDING_COLORS.length];
   };
 
-  // {oiling, cleaning, unloading}를 "동 + 유형 + 건수" 배지 목록으로 변환 (그리드 칸 전용)
+  // {oiling, cleaning, unloading, misc}를 "동 + 유형 + 건수" 배지 목록으로 변환 (그리드 칸 전용)
+  // misc와 청소의 기타청소(phase=9)는 고정 라벨 대신 입력한 remarks 원문을 그대로 배지 텍스트로 사용
   const buildTypeBadges = (dayRecords) => {
     const tagged = [
       ...dayRecords.oiling.map(r => ({ ...r, type: '박리제칠' })),
-      ...dayRecords.cleaning.map(r => ({ ...r, type: '청소' })),
+      ...(dayRecords.slab || []).map(r => ({ ...r, type: '슬라브' })),
+      ...dayRecords.cleaning.map(r => ({ ...r, type: r.phase === 9 ? (r.remarks || '기타청소') : '청소' })),
       ...(dayRecords.unloading || []).map(r => ({ ...r, type: '하역' })),
+      ...(dayRecords.misc || []).map(r => ({ ...r, type: r.remarks })),
     ];
     const groups = {};
     tagged.forEach(r => {
@@ -84,17 +98,27 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
     return Object.values(groups).map(g => ({ ...g, hos: [...g.hos].sort((a, b) => hoNum(a) - hoNum(b)) }));
   };
 
-  // 상세 패널 목록을 동(building) 단위로 묶고, 동 안에서는 기존 층별 그룹핑을 재사용
+  // 상세 패널 목록을 동(building) 단위로 묶고, 동 안에서는 유형(청소/하역/박리제칠)별로
+  // "유형 + 건수" 헤더 바로 아래에 그 유형의 상세 내역만 오도록 묶는다(유형 헤더가 한꺼번에
+  // 나열되고 상세 목록은 유형 구분 없이 뒤섞여 나오던 문제 수정).
   const groupByBuilding = (taggedRecords) => {
     const groups = {};
     taggedRecords.forEach(r => {
       const key = r.building_name || '미지정';
-      if (!groups[key]) groups[key] = { buildingName: key, counts: {}, rows: [] };
-      groups[key].counts[r.type] = (groups[key].counts[r.type] || 0) + 1;
-      groups[key].rows.push(r);
+      if (!groups[key]) groups[key] = { buildingName: key, buildingId: r.building_id, rowsByType: {} };
+      if (!groups[key].rowsByType[r.type]) groups[key].rowsByType[r.type] = [];
+      groups[key].rowsByType[r.type].push(r);
     });
     return Object.values(groups)
-      .map(g => ({ ...g, floorGroups: groupRecordsByFloor(g.rows) }))
+      .map(g => ({
+        buildingName: g.buildingName,
+        buildingId: g.buildingId,
+        typeGroups: Object.entries(g.rowsByType).map(([type, rows]) => ({
+          type,
+          count: rows.length,
+          floorGroups: groupRecordsByFloor(rows),
+        })),
+      }))
       .sort((a, b) => a.buildingName.localeCompare(b.buildingName));
   };
 
@@ -189,16 +213,43 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
     loadMonthlyAnalysis();
   }, [currentDate, currentSite?.id]);
 
+  useEffect(() => {
+    if (!currentSite?.id) return;
+    const loadPersonnel = async () => {
+      const month = currentDate.format('YYYY-MM');
+      try {
+        const res = await fetch(`${API_URL}/personnel?month=${month}`, {
+          headers: { 'X-Site-Id': currentSite.id }
+        });
+        if (!res.ok) throw new Error('인원 기록을 불러올 수 없습니다.');
+        setPersonnelRecords(await res.json());
+      } catch (err) {
+        setPersonnelRecords([]);
+      }
+    };
+    loadPersonnel();
+  }, [currentDate, currentSite?.id]);
+
+  // 해당 일자에 근무 기록이 있는 인원 수 (이름 기준 중복 제거)
+  const getDayWorkerCount = (date) => {
+    const formattedDate = date.format('YYYY-MM-DD');
+    const names = new Set(personnelRecords.filter(r => r.date === formattedDate).map(r => r.name));
+    return names.size;
+  };
+
   const getDayAmount = (date) => {
     if (!monthlyAnalysis) return 0;
     const formattedDate = date.format('YYYY-MM-DD');
     const oilingAmount = (monthlyAnalysis.oiling?.details || [])
       .filter(r => r.date === formattedDate)
       .reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : parseInt(r.amount) || 0), 0);
+    const slabAmount = (monthlyAnalysis.slab?.details || [])
+      .filter(r => r.date === formattedDate)
+      .reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : parseInt(r.amount) || 0), 0);
     const cleaningAmount = (monthlyAnalysis.cleaning?.details || [])
       .filter(r => r.date === formattedDate)
       .reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : parseInt(r.amount) || 0), 0);
-    return oilingAmount + cleaningAmount;
+    return oilingAmount + slabAmount + cleaningAmount;
   };
 
   return (
@@ -228,6 +279,9 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
           </button>
           <button onClick={() => setShowDailyAmount(prev => !prev)} className={`px-4 py-2 rounded-lg font-bold transition-colors ${showDailyAmount ? 'bg-primary text-white' : 'bg-surface-container text-on-surface hover:bg-surface-container-high'}`}>
             {showDailyAmount ? '일일 금액 보기 ON' : '일일 금액 보기 OFF'}
+          </button>
+          <button onClick={toggleShowSchedule} className={`px-4 py-2 rounded-lg font-bold transition-colors ${showSchedule ? 'bg-primary text-white' : 'bg-surface-container text-on-surface hover:bg-surface-container-high'}`}>
+            {showSchedule ? '일정 표시 ON' : '일정 표시 OFF'}
           </button>
         </div>
       </div>
@@ -280,7 +334,7 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
             const isToday = d.isSame(dayjs(), 'day');
             const isCurrentMonth = d.isSame(currentDate, 'month');
             const isSelected = selectedDay && d.isSame(selectedDay, 'day');
-            const hasRecords = records.oiling.length + records.cleaning.length + records.unloading.length > 0;
+            const hasRecords = records.oiling.length + (records.slab?.length || 0) + records.cleaning.length + records.unloading.length > 0;
 
             return (
               <div
@@ -310,17 +364,18 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
                       {b.buildingName} {b.type} {b.count}건
                     </div>
                   ))}
-                  {events.slice(0, 2).map(e => (
+                  {showSchedule && events.slice(0, 2).map(e => (
                     <div key={e.id} className={`text-[9px] px-1.5 py-0.5 ${EVENT_CATEGORIES[e.category]?.color || 'bg-primary'} text-white rounded truncate font-label`}>
                       📌 {e.title}
                     </div>
                   ))}
-                  {events.length > 2 && (
+                  {showSchedule && events.length > 2 && (
                     <div className="text-[9px] px-1.5 text-outline font-label">+{events.length - 2}개</div>
                   )}
                   {showDailyAmount && (
-                    <div className="mt-1 text-right text-[11px] font-bold text-emerald-700">
-                      ₩{getDayAmount(d).toLocaleString()}
+                    <div className="mt-1 flex items-center justify-between gap-1 text-[11px] font-bold">
+                      <span className="text-on-surface-variant">{getDayWorkerCount(d) > 0 ? `${getDayWorkerCount(d)}명` : ''}</span>
+                      <span className="text-emerald-700">{getDayAmount(d).toLocaleString()}원</span>
                     </div>
                   )}
                 </div>
@@ -342,7 +397,8 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
             </button>
           </div>
 
-          {/* 일정 */}
+          {/* 일정 (브라우저별 설정으로 on/off, 기본 off) */}
+          {showSchedule && (
           <div className="rounded-lg border border-outline-variant/20 mb-4 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 bg-surface-container-low">
               <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-primary">일정</h4>
@@ -412,6 +468,31 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
               )}
             </div>
           </div>
+          )}
+
+          {/* 기타 (동/층 없이 입력한 자유 기록 — 표시 전용, 입력/수정은 "기록" 탭에서) */}
+          {getDayRecords(selectedDay).misc.length > 0 && (
+          <div className="rounded-lg border border-outline-variant/20 mb-4 overflow-hidden">
+            <div className="px-4 py-3 bg-surface-container-low">
+              <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-primary">기타</h4>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              {getDayRecords(selectedDay).misc.map(r => (
+                <div key={r.id} className="flex items-start gap-2">
+                  <span className="mt-1 w-2 h-2 rounded-full flex-shrink-0 bg-tertiary"></span>
+                  <div className="min-w-0">
+                    <p className="font-body text-sm text-on-surface truncate">{r.remarks}</p>
+                    {(r.building_name || r.operator) && (
+                      <p className="font-body text-xs text-outline mt-0.5">
+                        {[r.building_name, r.operator].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
 
           {/* 과거 날씨 */}
           {weatherCache[selectedDay.format('YYYY-MM-DD')] && (
@@ -441,9 +522,10 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
           )}
 
           {/* 작업 기록 요약 */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-4 gap-3 mb-4">
             {[
               { label: '박리제칠', count: selectedDayDetail.oiling.length, color: 'text-primary bg-primary/10' },
+              { label: '슬라브', count: (selectedDayDetail.slab || []).length, color: 'text-amber-700 bg-amber-700/10' },
               { label: '청소', count: selectedDayDetail.cleaning.length, color: 'text-success bg-success/10' },
               { label: '하역', count: (selectedDayDetail.unloading || []).length, color: 'text-tertiary bg-tertiary/10' },
             ].map(item => (
@@ -460,35 +542,38 @@ const CalendarView = ({ summary, currentSite, buildings = [] }) => {
             <p className="font-headline font-black text-3xl text-emerald-700">₩{getDayAmount(selectedDay).toLocaleString()}</p>
           </div>
 
-          {/* 상세 목록: 동별 그룹핑 (동마다 고정 색상 사용) */}
+          {/* 상세 목록: 동별 그룹핑 (동마다 고정 색상 사용). 기타청소(phase=9)는 type에
+              remarks 원문을 그대로 써서 "101동 방호선반 청소"처럼 내용이 보이게 한다 */}
           {groupByBuilding([
             ...selectedDayDetail.oiling.map(r => ({ ...r, type: '박리제칠' })),
-            ...selectedDayDetail.cleaning.map(r => ({ ...r, type: '청소' })),
+            ...(selectedDayDetail.slab || []).map(r => ({ ...r, type: '슬라브' })),
+            ...selectedDayDetail.cleaning.map(r => ({ ...r, type: r.phase === 9 ? (r.remarks || '기타청소') : '청소' })),
             ...(selectedDayDetail.unloading || []).map(r => ({ ...r, type: '하역' }))
           ]).map(group => {
-            const color = getBuildingColor(group.rows[0]?.building_id);
+            const color = getBuildingColor(group.buildingId);
             return (
-              <div key={group.buildingName} className="py-3 border-b border-outline-variant/20 last:border-0">
-                <div className="mb-2 space-y-0.5">
-                  {Object.entries(group.counts).map(([type, count]) => (
-                    <p key={type} className="font-label font-black text-sm" style={{ color }}>
-                      {group.buildingName} {type} {count}건
+              <div key={group.buildingName} className="py-3 border-b border-outline-variant/20 last:border-0 space-y-2">
+                {group.typeGroups.map(tg => (
+                  <div key={tg.type}>
+                    <p className="font-label font-black text-sm mb-1" style={{ color }}>
+                      {group.buildingName} {tg.type} {tg.count}건
                     </p>
-                  ))}
-                </div>
-                {group.floorGroups.map((g, i) => (
-                  <div key={i} className="flex items-center gap-3 py-1 pl-1">
-                    <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
-                    <span className="font-body text-sm text-on-surface-variant">
-                      {g.floor ? `${g.floor}층` : ''} {g.hos.length > 0 ? g.hos.join(', ') : ''} {g.type}
-                    </span>
-                    {g.phase && <span className="font-label text-[9px] bg-surface-container px-2 py-0.5 rounded text-outline">{g.phase === 9 ? '기타청소' : `${g.phase}차청소`}</span>}
+                    {tg.floorGroups.map((g, i) => (
+                      <div key={i} className="flex items-center gap-3 py-1 pl-1">
+                        <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
+                        <span className="font-body text-sm text-on-surface-variant">
+                          {g.floor ? `${g.floor}층` : ''} {g.hos.length > 0 ? g.hos.join(', ') : ''} {g.type}
+                        </span>
+                        {/* phase=9(기타청소)는 type에 이미 remarks 원문이 표시되므로 중복되는 배지는 생략 */}
+                        {g.phase && g.phase !== 9 && <span className="font-label text-[9px] bg-surface-container px-2 py-0.5 rounded text-outline">{`${g.phase}차청소`}</span>}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
             );
           })}
-          {(selectedDayDetail.oiling.length + selectedDayDetail.cleaning.length + (selectedDayDetail.unloading || []).length) === 0 && (
+          {(selectedDayDetail.oiling.length + (selectedDayDetail.slab || []).length + selectedDayDetail.cleaning.length + (selectedDayDetail.unloading || []).length) === 0 && (
             <p className="text-center text-outline font-body py-4">이 날짜에는 기록된 작업이 없습니다.</p>
           )}
         </div>

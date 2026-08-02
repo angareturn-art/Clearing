@@ -661,6 +661,12 @@ export default function PersonnelManager({ currentSite }) {
                   ))}
                 </div>
 
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, work_hours: 4, lunch: 0 }))}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-secondary/30 bg-secondary/5 text-secondary font-label font-bold text-xs uppercase tracking-widest hover:bg-secondary/10 transition-all">
+                  <span className="material-symbols-outlined text-sm">schedule</span> 오전만(반차) · 4h로 설정
+                </button>
+
                 {/* 합계 */}
                 <div className="bg-surface-container rounded-lg px-4 py-3 flex items-center justify-between">
                   <span className="font-label text-xs text-outline uppercase tracking-widest">

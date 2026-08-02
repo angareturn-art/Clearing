@@ -3,6 +3,14 @@ import dayjs from 'dayjs';
 
 const API_URL = '/api';
 
+// 입력창에 "150,000"처럼 천단위 콤마로 보여주기 위한 포맷/파싱 헬퍼
+// (실제 state에는 콤마 없는 숫자 문자열만 저장한다)
+const formatThousands = (val) => {
+  const digits = String(val ?? '').replace(/[^0-9]/g, '');
+  return digits ? Number(digits).toLocaleString() : '';
+};
+const stripThousands = (val) => val.replace(/[^0-9]/g, '');
+
 const ROLES = [
   { value: 'foreman',   label: '팀장',      icon: 'manage_accounts', color: 'text-primary   bg-primary/10' },
   { value: 'worker',    label: '작업자',    icon: 'construction',    color: 'text-secondary bg-secondary/10' },
@@ -20,7 +28,7 @@ const STATUSES = [
 
 const EMPTY_FORM = {
   name: '', phone: '', role: 'worker', team: '',
-  specialty: '세대청소', status: 'active', memo: ''
+  specialty: '세대청소', status: 'active', memo: '', unit_price: ''
 };
 
 export default function WorkerManager({ currentSite }) {
@@ -35,7 +43,7 @@ export default function WorkerManager({ currentSite }) {
   const [showWageModal, setShowWageModal] = useState(false);
   const [wageHistory, setWageHistory]   = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
-  const [wageForm, setWageForm] = useState({ effective_date: dayjs().format('YYYY-MM-DD'), unit_price: 0 });
+  const [wageForm, setWageForm] = useState({ effective_date: dayjs().format('YYYY-MM-DD'), unit_price: 0, billing_rate: 0 });
 
   useEffect(() => { fetch_workers(); }, []);
 
@@ -60,7 +68,7 @@ export default function WorkerManager({ currentSite }) {
   const openEdit = (w) => {
     setForm({ name: w.name, phone: w.phone || '', role: w.role,
               team: w.team || '', specialty: w.specialty || '세대청소',
-              status: w.status, memo: w.memo || '' });
+              status: w.status, memo: w.memo || '', unit_price: '' });
     setEditId(w.id);
     setShowForm(true);
   };
@@ -114,7 +122,11 @@ export default function WorkerManager({ currentSite }) {
       if (!res.ok) throw new Error('데이터를 불러오는데 실패했습니다.');
       const data = await res.json();
       setWageHistory(data || []);
-      setWageForm({ effective_date: dayjs().format('YYYY-MM-DD'), unit_price: data[0]?.unit_price || 0 });
+      setWageForm({
+        effective_date: dayjs().format('YYYY-MM-DD'),
+        unit_price: data[0]?.unit_price || 0,
+        billing_rate: data[0]?.billing_rate || 0,
+      });
       setShowWageModal(true);
     } catch (err) {
       alert(err.message);
@@ -518,6 +530,21 @@ export default function WorkerManager({ currentSite }) {
                   </div>
                 </div>
 
+                {/* 단가 */}
+                <div className="group">
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2 group-focus-within:text-primary transition-colors">
+                    단가 (원){!editId && <span className="normal-case tracking-normal text-outline/70"> · 선택 입력</span>}
+                  </label>
+                  <input type="text" inputMode="numeric"
+                    className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2"
+                    placeholder="예: 150,000"
+                    value={formatThousands(form.unit_price)}
+                    onChange={e => setForm({...form, unit_price: stripThousands(e.target.value)})} />
+                  {editId && (
+                    <p className="text-[10px] text-outline mt-1">비워두면 기존 단가가 유지됩니다. 단가 변경 이력은 "단가 관리"에서 확인하세요.</p>
+                  )}
+                </div>
+
                 {/* 재직 상태 */}
                 <div>
                   <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">재직 상태</label>
@@ -586,9 +613,16 @@ export default function WorkerManager({ currentSite }) {
                     value={wageForm.effective_date} onChange={e => setWageForm({...wageForm, effective_date: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-[9px] text-outline mb-1">일당 (단가)</label>
-                  <input type="number" required className="w-full bg-surface py-2 px-2 rounded text-xs font-bold border-0 focus:ring-1 focus:ring-primary"
-                    value={wageForm.unit_price} onChange={e => setWageForm({...wageForm, unit_price: e.target.value})} />
+                  <label className="block text-[9px] text-outline mb-1">일당 (지급 단가)</label>
+                  <input type="text" inputMode="numeric" required className="w-full bg-surface py-2 px-2 rounded text-xs font-bold border-0 focus:ring-1 focus:ring-primary"
+                    value={formatThousands(wageForm.unit_price)}
+                    onChange={e => setWageForm({...wageForm, unit_price: stripThousands(e.target.value)})} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[9px] text-outline mb-1">일당 (청구 단가) <span className="normal-case font-normal">— 원청에 청구하는 단가, 현장별 손익 계산에 사용(선택)</span></label>
+                  <input type="text" inputMode="numeric" className="w-full bg-surface py-2 px-2 rounded text-xs font-bold border-0 focus:ring-1 focus:ring-primary"
+                    value={formatThousands(wageForm.billing_rate)}
+                    onChange={e => setWageForm({...wageForm, billing_rate: stripThousands(e.target.value)})} />
                 </div>
                 <button type="submit" className="col-span-2 bg-primary text-white py-2 rounded font-label text-[10px] font-bold uppercase tracking-widest mt-2 shadow-sm">
                   저장하기
@@ -602,7 +636,10 @@ export default function WorkerManager({ currentSite }) {
                   <div key={h.id} className="flex items-center justify-between p-3 bg-surface rounded-lg border border-outline-variant/10 group">
                     <div>
                       <p className="text-xs font-bold text-on-surface">{dayjs(h.effective_date).format('YYYY년 MM월 DD일')}</p>
-                      <p className="text-[10px] text-outline">적용 단가: <span className="text-primary font-bold">{h.unit_price.toLocaleString()}원</span></p>
+                      <p className="text-[10px] text-outline">
+                        지급: <span className="text-primary font-bold">{h.unit_price.toLocaleString()}원</span>
+                        {!!h.billing_rate && <> · 청구: <span className="text-tertiary font-bold">{h.billing_rate.toLocaleString()}원</span></>}
+                      </p>
                     </div>
                     <button onClick={() => handleWageDelete(h.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-error hover:bg-error/10 p-1 rounded">
                       <span className="material-symbols-outlined text-sm">delete</span>

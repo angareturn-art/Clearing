@@ -105,7 +105,9 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
       const res = await fetch(`${API_URL}/site-config`, { headers: { 'X-Site-Id': currentSite?.id } });
       const data = await res.json();
       if (data) {
-        setSiteConfig(data);
+        // 아직 이 현장에서 단가를 저장한 적이 없으면, 월별정산/수익성분석 등 각 화면이
+        // 실제로 사용 중인 기본 단가(오일링/청소 74,000원, 슬라브 0원)를 그대로 보여준다.
+        setSiteConfig({ oiling_price: '74000', cleaning_price: '74000', slab_price: '0', ...data });
         setMenuVisibility(buildMenuState(data));
       }
 
@@ -406,6 +408,77 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
               </div>
             </div>
           </div>
+
+          <div className="mt-8 pt-8 border-t border-outline-variant/10">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="material-symbols-outlined text-tertiary text-lg">payments</span>
+              <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-tertiary">작업유형별 단가 설정</h4>
+            </div>
+            <p className="text-xs text-outline mb-6">여기서 저장한 단가는 월별정산·수익성분석 등 각 화면의 기본값으로 자동 반영됩니다(화면에서 임시로 다시 수정하는 것은 계속 가능).</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div>
+                <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">박리제 단가 (세대당)</label>
+                <input
+                  className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                  type="number"
+                  value={siteConfig.oiling_price ?? ''}
+                  onChange={(e) => setSiteConfig({ ...siteConfig, oiling_price: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">청소 단가 (세대당)</label>
+                <input
+                  className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                  type="number"
+                  value={siteConfig.cleaning_price ?? ''}
+                  onChange={(e) => setSiteConfig({ ...siteConfig, cleaning_price: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">슬라브 단가 (세대당)</label>
+                <input
+                  className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                  type="number"
+                  value={siteConfig.slab_price ?? ''}
+                  onChange={(e) => setSiteConfig({ ...siteConfig, slab_price: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-8 border-t border-outline-variant/10">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-tertiary text-lg">account_balance</span>
+                <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-tertiary">현장 손익 계산 (청구/지급 차액 방식)</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSiteConfig({ ...siteConfig, billing_profit_model_enabled: siteConfig.billing_profit_model_enabled === 'true' ? 'false' : 'true' })}
+                className={`px-4 py-1.5 rounded-full font-label text-[10px] font-bold uppercase tracking-widest transition-all ${siteConfig.billing_profit_model_enabled === 'true' ? 'bg-primary text-white' : 'bg-surface-container-low text-outline'}`}
+              >
+                {siteConfig.billing_profit_model_enabled === 'true' ? '사용 중' : '꺼짐'}
+              </button>
+            </div>
+            <p className="text-xs text-outline mb-6">
+              켜면 "현장 손익" 화면에서 작업자별 (청구단가-지급단가)×공수 합계에서 기름값을 뺀 순수익을 계산합니다.
+              작업자별 청구/지급 단가는 작업자 관리 화면의 "단가 변동 이력"에서 입력합니다.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div>
+                <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">기름값 (1일 기준)</label>
+                <input
+                  className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                  type="number"
+                  value={siteConfig.fuel_cost_per_day ?? ''}
+                  onChange={(e) => setSiteConfig({ ...siteConfig, fuel_cost_per_day: e.target.value })}
+                  placeholder="60000"
+                />
+                <p className="text-[10px] text-outline mt-1">예: 왕복 2회당 12만원이면 1일 6만원으로 환산해 입력</p>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-8 flex justify-end">
             <button onClick={handleSave} className="bg-primary text-white px-8 py-3 rounded font-label font-bold text-xs uppercase tracking-widest shadow-lg hover:shadow-primary/20 transition-all">설정 저장</button>
           </div>
@@ -476,7 +549,7 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
                   <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-tertiary">기준층 설정</h4>
                 </div>
                 <p className="text-xs text-outline mb-6">이 층을 초과하는 부분부터 기성(청구) 금액에 산입됩니다.</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                   <div>
                     <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">기름칠(박리제) 기준층</label>
                     <input
@@ -484,6 +557,15 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
                       type="number"
                       value={editData.oiling_base_floor ?? 0}
                       onChange={(e) => setEditData({ ...editData, oiling_base_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">슬라브 기준층</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.slab_base_floor ?? 0}
+                      onChange={(e) => setEditData({ ...editData, slab_base_floor: parseInt(e.target.value) || 0 })}
                     />
                   </div>
                   <div>
@@ -502,6 +584,43 @@ const MasterManager = ({ buildings, onRefresh, currentUser, currentSite, onSiteU
                       type="number"
                       value={editData.unloading_base_floor ?? 0}
                       onChange={(e) => setEditData({ ...editData, unloading_base_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-8 border-t border-outline-variant/10">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-tertiary text-lg">calculate</span>
+                  <h4 className="font-label text-[11px] font-bold uppercase tracking-widest text-tertiary">층 구간별 결합과금 (선택)</h4>
+                </div>
+                <p className="text-xs text-outline mb-6">설정 시 이 건물은 갱폼박리+세대청소(2차 서명완료)가 모두 끝난 층만, 청소/박리와 별개로 층당 고정금액이 청구됩니다. 경계층을 0으로 두면 비활성화(기존 방식)됩니다.</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">경계층 (이하=저층 단가)</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.combo_tier_floor ?? 0}
+                      onChange={(e) => setEditData({ ...editData, combo_tier_floor: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">저층 층당 금액 (지하~경계층)</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.combo_low_price ?? 0}
+                      onChange={(e) => setEditData({ ...editData, combo_low_price: parseInt(e.target.value) || 0 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">고층 층당 금액 (경계층 초과)</label>
+                    <input
+                      className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-tertiary transition-all text-on-surface font-bold py-3 px-2"
+                      type="number"
+                      value={editData.combo_high_price ?? 0}
+                      onChange={(e) => setEditData({ ...editData, combo_high_price: parseInt(e.target.value) || 0 })}
                     />
                   </div>
                 </div>

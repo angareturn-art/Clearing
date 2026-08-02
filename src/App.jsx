@@ -17,12 +17,16 @@ import AdvancedElevationView from './components/AdvancedElevationView';
 import SyncManager from './components/SyncManager';
 import MonthlyClosing from './components/MonthlyClosing';
 import MonthlyAnalysis2 from './components/MonthlyAnalysis2';
+import SiteProfitReport from './components/SiteProfitReport';
+import ProfitabilityView from './components/ProfitabilityView';
 import RevenueProjection from './components/RevenueProjection';
 import MatrixStatusView from './components/MatrixStatusView';
 import MatrixStatusView2 from './components/MatrixStatusView2';
 import CleaningStatusExport from './components/CleaningStatusExport';
+import WageLedgerExport from './components/WageLedgerExport';
 import CleaningSignApproval from './components/CleaningSignApproval';
 import UnifiedMatrixView from './components/UnifiedMatrixView';
+import { APP_VERSION } from './constants/changelog';
 
 
 dayjs.locale('ko');
@@ -56,8 +60,11 @@ const ALL_TABS = [
   { id: 'payment_status',   label: '기성 현황',       icon: 'payments' },
   { id: 'closing',          label: '월별 마감',       icon: 'price_check' },
   { id: 'monthly_analysis2', label: '월별정산',        icon: 'analytics' },
+  { id: 'profitability',     label: '수익성 분석',     icon: 'monitoring' },
+  { id: 'site_profit',       label: '현장 손익',       icon: 'account_balance' },
   { id: 'sign_approval',     label: '본청 서명',       icon: 'draw' },
   { id: 'cleaning_export',   label: '청소현황 출력',   icon: 'file_download' },
+  { id: 'wage_ledger_export', label: '노임 지급대장 출력', icon: 'receipt_long' },
   { id: 'projection',        label: '예상 수입',        icon: 'trending_up' },
   { id: 'emergency',        label: '비상연락',        icon: 'emergency' },
   { id: 'settings',         label: '기준정보',        icon: 'database' },
@@ -67,8 +74,8 @@ const ALL_TABS = [
 // ── 사이드바 네비게이션 그룹 ──
 const NAV_GROUPS = [
   { label: '현황', tabIds: ['dashboard', 'elevation', 'visual_blueprint', 'unified', 'matrix', 'matrix2'] },
-  { label: '공정 기록', tabIds: ['records', 'calendar', 'sign_approval', 'cleaning_export'] },
-  { label: '정산', tabIds: ['monthly_analysis2', 'cost', 'payment_status', 'closing', 'projection'] },
+  { label: '공정 기록', tabIds: ['records', 'calendar', 'sign_approval', 'cleaning_export', 'wage_ledger_export'] },
+  { label: '정산', tabIds: ['monthly_analysis2', 'profitability', 'site_profit', 'cost', 'payment_status', 'closing', 'projection'] },
   { label: '관리', tabIds: ['personnel', 'workers', 'emergency', 'settings', 'sync'] },
 ];
 
@@ -85,9 +92,8 @@ function App() {
     const stored = localStorage.getItem('ba_current_site');
     return stored ? JSON.parse(stored) : null;
   });
-  const [viewMode, setViewMode] = useState('total');         // 배치도 보기 모드 (통합/기름칠/청소)
   const [buildings, setBuildings] = useState([]);             // 건물(동) 전체 정보
-  const [summary, setSummary] = useState({ oiling: [], cleaning: [], unloading: [] }); // 각 공정별 집계 요약
+  const [summary, setSummary] = useState({ oiling: [], slab: [], cleaning: [], unloading: [] }); // 각 공정별 집계 요약
   // 완료 여부/기성 등 "현재 상태"를 판단하는 화면(대시보드·배치도·매트릭스)용으로,
   // 세대당 2차 청소 중복 기록 중 가장 최근 것만 남긴 파생 데이터.
   // 기록 이력을 그대로 보여줘야 하는 캘린더 등에는 원본 summary를 그대로 사용한다.
@@ -195,7 +201,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
       const res = await fetchWithSite(`${API_URL}/status/summary`);
       if (!res) return;
       const data = await res.json();
-      setSummary(data || { oiling: [], cleaning: [], unloading: [] });
+      setSummary(data || { oiling: [], slab: [], cleaning: [], unloading: [] });
     } catch (err) { console.error('요약 데이터 로드 실패:', err); }
   };
 
@@ -233,10 +239,12 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
   };
   const handleCellClick = (data) => {
     let floorInt = parseFloor(data.floor);
-    const type = viewMode === 'oiling' ? 'oiling' : viewMode === 'unloading' ? 'unloading' : 'cleaning';
+    const type = data.type === 'oiling' ? 'oiling' : data.type === 'slab' ? 'slab' : data.type === 'unloading' ? 'unloading' : 'cleaning';
     let existingRecord = null;
     if (type === 'oiling') {
       existingRecord = summary.oiling?.find(r => r.building_id === data.building_id && r.floor === floorInt);
+    } else if (type === 'slab') {
+      existingRecord = summary.slab?.find(r => r.building_id === data.building_id && r.floor === floorInt);
     } else if (type === 'unloading') {
       existingRecord = summary.unloading
         ?.filter(r => r.house_id === data.house_id && r.floor === floorInt)
@@ -313,6 +321,20 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
         })
       );
       await Promise.all(promises);
+    } else if (modalType === 'misc') {
+      if (!formData.remarks?.trim()) {
+        alert('기타 내역을 입력해주세요.');
+        return;
+      }
+      const res = await fetchWithSite(`${API_URL}/records/misc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building_id: formData.building_id || null, date: formData.date, remarks: formData.remarks, operator: formData.operator })
+      });
+      if (!res || !res.ok) {
+        alert('저장 실패: 서버에 반영되지 않았습니다. 서버가 최신 버전으로 재시작되었는지 확인해주세요.');
+        return;
+      }
     } else {
       const targetFloors = formData.floors?.length > 0 ? formData.floors : [formData.floor];
       if (!targetFloors[0]) {
@@ -416,8 +438,8 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
             <span className="material-symbols-outlined text-white text-sm">architecture</span>
           </div>
           <div>
-            <div className="text-white font-black text-xs tracking-tighter uppercase leading-tight font-headline">Blueprint</div>
-            <div className="text-white font-black text-xs tracking-tighter uppercase leading-tight font-headline">Authority</div>
+            <div className="text-white font-black text-xs tracking-tighter uppercase leading-tight font-headline">세대청소 관리</div>
+            <div className="text-white/40 text-[9px] font-bold tracking-widest">v{APP_VERSION}</div>
           </div>
         </div>
       </div>
@@ -535,26 +557,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
         {activeTab === 'dashboard' && <Dashboard buildings={buildings} summary={summary} filteredSummary={filteredSummary} siteConfig={siteConfig} currentSite={currentSite} />}
 
         {activeTab === 'elevation' && (
-          <div>
-            <div className="flex flex-wrap items-center gap-2 mb-6 bg-surface-container-low p-2 rounded-lg">
-              {[
-                { id: 'total', label: '현장 전체', icon: 'grid_view' },
-                { id: 'oiling', label: '기름칠', icon: 'format_paint' },
-                { id: 'cleaning', label: '청소만', icon: 'cleaning_services' },
-                { id: 'unloading', label: '하역만', icon: 'inventory_2' }
-              ].map(mode => (
-                <button
-                  key={mode.id}
-                  className={`flex items-center gap-2 px-4 py-2 rounded font-label text-xs uppercase font-bold transition-all ${viewMode === mode.id ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
-                  onClick={() => setViewMode(mode.id)}
-                >
-                  <span className="material-symbols-outlined text-sm">{mode.icon}</span>
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-            <ElevationView buildings={buildings} summary={filteredSummary} onCellClick={handleCellClick} viewMode={viewMode} />
-          </div>
+          <ElevationView buildings={buildings} summary={filteredSummary} onCellClick={handleCellClick} />
         )}
 
         {activeTab === 'visual_blueprint' && (
@@ -596,8 +599,11 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
         {activeTab === 'payment_status' && <PaymentStatus buildings={buildings} summary={summary} currentSite={currentSite} />}
         {activeTab === 'closing' && <MonthlyClosing siteId={currentSite?.id} token={localStorage.getItem('ba_token')} />}
         {activeTab === 'monthly_analysis2' && <MonthlyAnalysis2 currentSite={currentSite} buildings={buildings} />}
-        {activeTab === 'sign_approval' && <CleaningSignApproval currentSite={currentSite} />}
+        {activeTab === 'profitability' && <ProfitabilityView currentSite={currentSite} />}
+        {activeTab === 'site_profit' && <SiteProfitReport currentSite={currentSite} />}
+        {activeTab === 'sign_approval' && <CleaningSignApproval currentSite={currentSite} onSigned={fetchSummary} />}
         {activeTab === 'cleaning_export' && <CleaningStatusExport currentSite={currentSite} buildings={buildings} />}
+        {activeTab === 'wage_ledger_export' && <WageLedgerExport currentSite={currentSite} />}
         {activeTab === 'projection' && <RevenueProjection currentSite={currentSite} buildings={buildings} />}
         {activeTab === 'emergency' && <EmergencyContacts currentSite={currentSite} />}
         {activeTab === 'sync' && <SyncManager currentUser={currentUser} />}
@@ -610,13 +616,13 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
             <div className="bg-surface-container-lowest p-4 shadow-sm rounded-lg flex flex-wrap gap-3 items-center justify-between border border-outline-variant/20">
               <div className="flex items-center gap-3">
                 <div className="flex bg-surface-container p-1 rounded-lg">
-                  {['cleaning', 'oiling', 'unloading'].map(type => (
+                  {['cleaning', 'oiling', 'slab', 'unloading', 'misc'].map(type => (
                     <button
                       key={type}
                       className={`px-4 py-2 font-bold rounded text-xs uppercase tracking-wider transition-all ${modalType === type ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
                       onClick={() => setModalType(type)}
                     >
-                      {type === 'cleaning' ? '청소' : type === 'oiling' ? '박리제칠' : '하역'}
+                      {type === 'cleaning' ? '청소' : type === 'oiling' ? '박리제칠' : type === 'slab' ? '슬라브' : type === 'unloading' ? '하역' : '기타'}
                     </button>
                   ))}
                 </div>
@@ -679,7 +685,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                 <tbody className="divide-y divide-surface-variant/50">
                   {records.map(r => (
                     <tr key={r.id} className="bg-surface hover:bg-surface-container-low transition-colors">
-                      <td className="py-4 px-4 font-label font-bold text-primary">{r.building_name} <span className="text-secondary">{r.ho || ''}</span></td>
+                      <td className="py-4 px-4 font-label font-bold text-primary">{r.building_name || '-'} <span className="text-secondary">{r.ho || ''}</span></td>
                       <td className="py-4 px-4 font-body">{formatFloorDisplay(r.floor)}</td>
                       {filterMode === 'building' && <td className="py-4 px-4 font-body text-sm text-on-surface-variant">{r.date}</td>}
                       <td className="py-4 px-4 font-body">
@@ -693,7 +699,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                             ? <span className="ml-2 inline-flex items-center gap-1 bg-green-100 text-green-800 text-[10px] font-bold px-2 py-0.5 rounded-full"><span className="material-symbols-outlined text-xs">verified</span>서명완료 {r.sign_date}</span>
                             : <span className="ml-2 inline-flex items-center gap-1 bg-lime-100 text-lime-700 text-[10px] font-bold px-2 py-0.5 rounded-full"><span className="material-symbols-outlined text-xs">pending</span>서명대기</span>
                         )}
-                        {modalType === 'oiling' && <span className="text-secondary-container">담당: {r.operator}</span>}
+                        {(modalType === 'oiling' || modalType === 'slab') && <span className="text-secondary-container">담당: {r.operator}</span>}
                       </td>
                       <td className="py-4 px-4 font-body text-sm text-on-surface-variant">{r.remarks || r.memo}</td>
                       <td className="py-4 px-4 font-body text-xs text-outline whitespace-nowrap">
@@ -713,6 +719,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                                 body: JSON.stringify({ sign_date: dayjs().format('YYYY-MM-DD') }),
                               });
                               fetchRecords();
+                              fetchSummary();
                             }}
                           >draw</span>
                         )}
@@ -741,7 +748,8 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                 <div className="w-6 h-6 bg-secondary rounded flex items-center justify-center">
                   <span className="material-symbols-outlined text-white text-xs">architecture</span>
                 </div>
-                <span className="text-white font-black text-xs tracking-tight uppercase font-headline">Blueprint Authority</span>
+                <span className="text-white font-black text-xs tracking-tight uppercase font-headline">세대청소 관리</span>
+                <span className="text-white/40 text-[9px] font-bold tracking-widest">v{APP_VERSION}</span>
               </div>
               <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
                 <span className="material-symbols-outlined text-white/60 text-xl">close</span>
@@ -787,7 +795,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-label text-sm font-bold uppercase tracking-widest text-primary flex items-center gap-2">
                   <span className="material-symbols-outlined">edit_square</span>
-                  {modalType === 'oiling' ? '박리제칠 기록' : modalType === 'cleaning' ? '청소 공정 기록' : '하역 공정 기록'}
+                  {modalType === 'oiling' ? '박리제칠 기록' : modalType === 'slab' ? '슬라브 기록' : modalType === 'cleaning' ? '청소 공정 기록' : modalType === 'unloading' ? '하역 공정 기록' : '기타 기록'}
                 </h3>
                 <button onClick={() => setShowModal(false)}>
                   <span className="material-symbols-outlined text-outline hover:text-on-surface">close</span>
@@ -797,8 +805,8 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="grid grid-cols-1 gap-4">
                   <div>
-                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">동 선택</label>
-                    <select required className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.building_id} onChange={(e) => setFormData({ ...formData, building_id: e.target.value, house_id: '', house_ids: [] })}>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">동 선택{modalType === 'misc' ? ' (선택사항)' : ''}</label>
+                    <select required={modalType !== 'misc'} className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" value={formData.building_id} onChange={(e) => setFormData({ ...formData, building_id: e.target.value, house_id: '', house_ids: [] })}>
                       <option value="">빌딩 선택</option>
                       {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
@@ -832,7 +840,7 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                   )}
                 </div>
 
-                {formData.building_id && (
+                {modalType !== 'misc' && formData.building_id && (
                   <div>
                     <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">층수 {formData.record_id ? '선택 (단일 수정모드)' : '다중 선택 (여럿 선택 가능)'}</label>
                     <div className="flex flex-wrap gap-2 p-2 bg-surface-container-low rounded-lg border border-outline-variant/30">
@@ -890,16 +898,16 @@ const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('sideb
                   </div>
                 )}
 
-                {modalType === 'oiling' && (
+                {(modalType === 'oiling' || modalType === 'slab' || modalType === 'misc') && (
                   <div>
-                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">작업자</label>
+                    <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">작업자 {modalType === 'misc' ? '(선택사항)' : ''}</label>
                     <input type="text" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-bold py-2" placeholder="이름" value={formData.operator} onChange={(e) => setFormData({ ...formData, operator: e.target.value })} />
                   </div>
                 )}
 
                 <div>
-                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">특이사항 메모</label>
-                  <textarea rows="2" className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-body py-2" placeholder="메모..." value={formData.remarks || formData.memo || ''} onChange={(e) => setFormData({ ...formData, remarks: e.target.value, memo: e.target.value })} />
+                  <label className="block font-label text-[10px] uppercase tracking-widest text-outline mb-2">{modalType === 'misc' ? '기타 내역' : '특이사항 메모'}</label>
+                  <textarea required={modalType === 'misc'} rows={modalType === 'misc' ? 4 : 2} className="w-full bg-surface-container-low border-0 border-b-2 border-outline-variant/30 focus:ring-0 focus:border-primary transition-all text-on-surface font-body py-2" placeholder={modalType === 'misc' ? '예) 자재 반입, 안전점검 등' : '메모...'} value={formData.remarks || formData.memo || ''} onChange={(e) => setFormData({ ...formData, remarks: e.target.value, memo: e.target.value })} />
                 </div>
 
                 <div className="pt-2 flex gap-3">

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 
 const MATRIX_TABS = [
   { id: 'oiling',    title: '갱폼 박리제칠', activeClass: 'bg-primary text-white',    summaryColor: 'text-primary',    barColor: 'bg-primary' },
+  { id: 'slab',      title: '슬라브',        activeClass: 'bg-amber-700 text-white',  summaryColor: 'text-amber-700',  barColor: 'bg-amber-700' },
   { id: 'clean1',    title: '1차 세대청소',  activeClass: 'bg-sky-500 text-white',    summaryColor: 'text-sky-600',    barColor: 'bg-sky-500' },
   { id: 'clean2',    title: '2차 세대청소',  activeClass: 'bg-success text-white',    summaryColor: 'text-success',    barColor: 'bg-success' },
   { id: 'unloading', title: '하역',          activeClass: 'bg-purple-500 text-white', summaryColor: 'text-purple-600', barColor: 'bg-purple-500' },
@@ -96,10 +97,20 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
       return { total: total || (rec ? 1 : 0), completed, unsignedCount: 0, latestDate };
     }
 
+    if (viewMode === 'slab') {
+      const rec = selectedYM
+        ? summary.slab?.find(r => Number(r.building_id) === buildingId && Number(r.floor) === floor && r.date?.startsWith(selectedYM))
+        : summary.slab?.find(r => Number(r.building_id) === buildingId && Number(r.floor) === floor);
+      if (!rec && total === 0) return { total: 0, completed: 0, unsignedCount: 0, latestDate: null };
+      completed = rec ? (total || 1) : 0;
+      latestDate = rec?.date || null;
+      return { total: total || (rec ? 1 : 0), completed, unsignedCount: 0, latestDate };
+    }
+
     const src = viewMode === 'unloading' ? summary.unloading : summary.cleaning;
 
     if (selectedYM) {
-      const floorRecs = src?.filter(r => {
+      const monthRecs = src?.filter(r => {
         if (Number(r.building_id) !== buildingId) return false;
         if (Number(r.floor) !== floor) return false;
         if (!r.date?.startsWith(selectedYM)) return false;
@@ -108,25 +119,44 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
         return r.phase >= 1;
       }) || [];
 
+      if (viewMode === 'clean2') {
+        // 2차청소는 서명 여부가 핵심이라, "완료 여부"는 이번 달로 한정하지 않고 선택한 달까지
+        // 누적으로 판단한다 (이전 달에 이미 서명된 세대가 이번 달 재작업 때문에 다시
+        // 미완료(✓N)로 보이는 문제 방지). "이번 달에 처리된 세대 수"는 monthCount로 별도 반환.
+        const { year, month } = parseYM(selectedYM);
+        const nextMonthStart = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
+        const cumulativeRecs = src?.filter(r =>
+          Number(r.building_id) === buildingId && Number(r.floor) === floor &&
+          r.phase === 2 && r.date < nextMonthStart
+        ) || [];
+
+        if (total === 0 && cumulativeRecs.length === 0) {
+          return { total: 0, completed: 0, unsignedCount: 0, latestDate: null, monthCount: 0 };
+        }
+        const effectiveTotal = total > 0 ? total : cumulativeRecs.length;
+
+        const signedRecs = cumulativeRecs.filter(r => r.confirmed === 1);
+        const byHouseSigned = validHouses.filter(h => signedRecs.some(r => r.house_id === h.id)).length;
+        const byHouseAll    = validHouses.filter(h => cumulativeRecs.some(r => r.house_id === h.id)).length;
+        completed     = byHouseSigned > 0 ? byHouseSigned : Math.min(signedRecs.length, effectiveTotal);
+        const totalCleaned  = byHouseAll > 0 ? byHouseAll : Math.min(cumulativeRecs.length, effectiveTotal);
+        unsignedCount = totalCleaned - completed;
+        const latestSigned  = [...signedRecs].sort((a, b) => (b.sign_date || b.date).localeCompare(a.sign_date || a.date))[0];
+        latestDate = latestSigned?.sign_date || latestSigned?.date
+                  || [...cumulativeRecs].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
+
+        const monthCount = validHouses.filter(h => monthRecs.some(r => r.house_id === h.id)).length;
+        return { total: effectiveTotal, completed, unsignedCount, latestDate, monthCount };
+      }
+
+      const floorRecs = monthRecs;
       if (total === 0 && floorRecs.length === 0) return { total: 0, completed: 0, unsignedCount: 0, latestDate: null };
       const effectiveTotal = total > 0 ? total : floorRecs.length;
 
       if (floorRecs.length > 0) {
-        if (viewMode === 'clean2') {
-          const signedRecs = floorRecs.filter(r => r.confirmed === 1);
-          const byHouseSigned = validHouses.filter(h => signedRecs.some(r => r.house_id === h.id)).length;
-          const byHouseAll    = validHouses.filter(h => floorRecs.some(r => r.house_id === h.id)).length;
-          completed     = byHouseSigned > 0 ? byHouseSigned : Math.min(signedRecs.length, effectiveTotal);
-          const totalCleaned  = byHouseAll > 0 ? byHouseAll : Math.min(floorRecs.length, effectiveTotal);
-          unsignedCount = totalCleaned - completed;
-          const latestSigned  = [...signedRecs].sort((a, b) => (b.sign_date || b.date).localeCompare(a.sign_date || a.date))[0];
-          latestDate = latestSigned?.sign_date || latestSigned?.date
-                    || [...floorRecs].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
-        } else {
-          const byHouse = validHouses.filter(h => floorRecs.some(r => r.house_id === h.id)).length;
-          completed  = byHouse > 0 ? byHouse : Math.min(floorRecs.length, effectiveTotal);
-          latestDate = [...floorRecs].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
-        }
+        const byHouse = validHouses.filter(h => floorRecs.some(r => r.house_id === h.id)).length;
+        completed  = byHouse > 0 ? byHouse : Math.min(floorRecs.length, effectiveTotal);
+        latestDate = [...floorRecs].sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
       }
       return { total: effectiveTotal, completed, unsignedCount, latestDate };
     }
@@ -175,6 +205,8 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
     buildings.forEach(b => {
       const limit = viewMode === 'oiling'
         ? (b.oiling_base_floor || 0)
+        : viewMode === 'slab'
+        ? (b.slab_base_floor || 0)
         : viewMode === 'unloading'
         ? (b.unloading_base_floor || 0)
         : (b.cleaning_base_floor || 0);
@@ -244,7 +276,7 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
                 </td>
 
                 {buildings.map(b => {
-                  const { total, completed, unsignedCount, latestDate } = getStatus(b.id, floor);
+                  const { total, completed, unsignedCount, latestDate, monthCount } = getStatus(b.id, floor);
 
                   let bgClass = '';
                   let textClass = 'text-on-surface-variant';
@@ -253,7 +285,7 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
                   let monthStyle = {};
 
                   if (total > 0) {
-                    if (viewMode === 'oiling') {
+                    if (viewMode === 'oiling' || viewMode === 'slab') {
                       if (completed > 0) {
                         isCompleted = true;
                         textClass = 'text-white';
@@ -267,7 +299,10 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
                         // 전체 서명 완료 → 월별 색상 (기존과 동일)
                         isCompleted = true;
                         textClass = 'text-white';
-                        cellText = fmtDate(latestDate) || String(total);
+                        // 선택한 달에 일부 세대만 재작업됐다면(예: 4세대 중 2세대만 이번 달 재서명)
+                        // 완료 표시는 유지하되 재작업 세대 수를 작게 덧붙여 구분한다
+                        const reworkBadge = (selectedYM && monthCount > 0 && monthCount < total) ? ` ↻${monthCount}` : '';
+                        cellText = (fmtDate(latestDate) || String(total)) + reworkBadge;
                         const month = latestDate ? new Date(latestDate).getMonth() : null;
                         monthStyle = month !== null ? { backgroundColor: MONTH_COLORS[month] } : {};
                       } else if (completed > 0) {
@@ -306,6 +341,8 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor, tabInfo, s
 
                   const limit = viewMode === 'oiling'
                     ? (b.oiling_base_floor || 0)
+                    : viewMode === 'slab'
+                    ? (b.slab_base_floor || 0)
                     : viewMode === 'unloading'
                     ? (b.unloading_base_floor || 0)
                     : (b.cleaning_base_floor || 0);
@@ -457,7 +494,7 @@ const MatrixStatusView2 = ({ buildings, summary }) => {
             onClick={() => setActiveTab(t.id)}
             className={`flex-1 py-2 rounded-lg text-[10px] font-black tracking-wide transition-all ${activeTab === t.id ? t.activeClass + ' shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
           >
-            {t.id === 'oiling' ? '박리제칠' : t.id === 'clean1' ? '1차청소' : t.id === 'clean2' ? '2차청소' : '하역'}
+            {t.id === 'oiling' ? '박리제칠' : t.id === 'slab' ? '슬라브' : t.id === 'clean1' ? '1차청소' : t.id === 'clean2' ? '2차청소' : '하역'}
           </button>
         ))}
       </div>
@@ -475,8 +512,8 @@ const MatrixStatusView2 = ({ buildings, summary }) => {
         />
       </div>
 
-      {/* 태블릿/PC: 4열 그리드 */}
-      <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-2">
+      {/* 태블릿/PC: 5열 그리드 */}
+      <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-5 gap-2">
         {MATRIX_TABS.map(t => (
           <MatrixTable
             key={t.id}

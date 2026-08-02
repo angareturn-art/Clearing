@@ -31,17 +31,20 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
 
   const getStatus = (houseId, floor) => {
     const oiling = summary.oiling?.find(r => r.house_id === houseId && r.floor === floor);
+    const slab = summary.slab?.find(r => r.house_id === houseId && r.floor === floor);
     const cleaningRecords = summary.cleaning?.filter(r => r.house_id === houseId && r.floor === floor) || [];
     const latestCleaning = [...cleaningRecords].sort((a, b) => b.date.localeCompare(a.date) || b.phase - a.phase)[0];
-    
-    // 두 공정 중 더 최근 날짜를 찾음
-    const latestDate = [oiling?.date, latestCleaning?.date]
+
+    // 세 공정 중 더 최근 날짜를 찾음
+    const latestDate = [oiling?.date, slab?.date, latestCleaning?.date]
       .filter(Boolean)
       .sort((a, b) => b.localeCompare(a))[0] || null;
 
     return {
       isOiled: !!oiling,
       oilingDate: oiling?.date || null,
+      isSlab: !!slab,
+      slabDate: slab?.date || null,
       progress: latestCleaning ? latestCleaning.progress : 0,
       cleaningDate: latestCleaning?.date || null,
       latestDate
@@ -51,16 +54,18 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
   // 동별 요약 데이터 계산
   const getBuildingStats = (b) => {
     const buildingOiling = summary.oiling?.filter(r => r.building_id === b.id) || [];
+    const buildingSlab = summary.slab?.filter(r => r.building_id === b.id) || [];
     const buildingCleaning = summary.cleaning?.filter(r => r.building_id === b.id) || [];
-    
+
     const maxOiling = buildingOiling.length > 0 ? Math.max(...buildingOiling.map(r => r.floor)) : 0;
+    const maxSlab = buildingSlab.length > 0 ? Math.max(...buildingSlab.map(r => r.floor)) : 0;
     const maxCleaning = buildingCleaning.length > 0 ? Math.max(...buildingCleaning.map(r => r.floor)) : 0;
-    
+
     const totalUnits = b.houses.reduce((acc, h) => acc + h.floors, 0);
     const completedUnits = buildingCleaning.filter(r => r.progress === 100).length;
     const cleanPercent = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
 
-    return { maxOiling, maxCleaning, cleanPercent };
+    return { maxOiling, maxSlab, maxCleaning, cleanPercent };
   };
 
   return (
@@ -70,6 +75,10 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-primary rounded-sm" />
           <span className="text-xs font-bold text-on-surface">박리제 완료</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-amber-700 rounded-sm" />
+          <span className="text-xs font-bold text-on-surface">슬라브 완료</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 bg-sky-400 rounded-sm" />
@@ -121,6 +130,10 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
                     <span className="text-[10px] font-bold text-success uppercase">Cleaning Max</span>
                     <span className="text-sm font-black text-success">{stats.maxCleaning}F</span>
                   </div>
+                  <div className="bg-white/50 p-2 rounded-lg border border-amber-700/10 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">Slab Max</span>
+                    <span className="text-sm font-black text-amber-700">{stats.maxSlab}F</span>
+                  </div>
                 </div>
               </div>
 
@@ -162,6 +175,7 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
                           >
                             <span className="text-[8px] font-bold text-outline group-hover:hidden">B{Math.abs(f)}</span>
                             {status.isOiled && <div className="absolute inset-0 bg-primary/20 rounded-lg -z-10" />}
+                            {!status.isOiled && status.isSlab && <div className="absolute inset-0 bg-amber-700/20 rounded-lg -z-10" />}
                           </div>
                         );
                       })}
@@ -177,6 +191,7 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
                         let bgClass = 'bg-surface-container-lowest';
                         if (status.progress === 100) bgClass = 'bg-success text-white shadow-success/20';
                         else if (status.isOiled) bgClass = 'bg-primary text-white shadow-primary/20';
+                        else if (status.isSlab) bgClass = 'bg-amber-700 text-white shadow-amber-700/20';
                         else if (status.progress > 0) bgClass = 'bg-sky-400 text-white shadow-sky-200/50';
 
                         return (
@@ -185,8 +200,8 @@ const AdvancedElevationView = ({ buildings, summary, onCellClick }) => {
                             onClick={() => onCellClick && onCellClick({ building_id: b.id, house_id: house.id, floor: f.toString() })}
                             className={`group relative w-12 h-10 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-all hover:scale-110 hover:z-20 border border-outline-variant/10 ${bgClass} ${getGlowClass(status.latestDate)} shadow-sm`}
                           >
-                            {/* 청소 진행률 바 (배경이 박리제색일 때 아래에서 위로 차오르는 효과) */}
-                            {status.isOiled && status.progress > 0 && status.progress < 100 && (
+                            {/* 청소 진행률 바 (배경이 박리제/슬라브색일 때 아래에서 위로 차오르는 효과) */}
+                            {(status.isOiled || status.isSlab) && status.progress > 0 && status.progress < 100 && (
                               <div 
                                 className="absolute bottom-0 left-0 right-0 bg-sky-400 rounded-b-lg transition-all duration-500"
                                 style={{ height: `${status.progress}%` }}

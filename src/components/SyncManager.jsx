@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
 
 const API_URL = '/api';
@@ -8,6 +8,48 @@ export default function SyncManager({ currentUser }) {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [deletedHistory, setDeletedHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
+
+  const fetchDeletedHistory = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('ba_token');
+      const siteId = JSON.parse(localStorage.getItem('ba_current_site') || 'null')?.id;
+      const response = await fetch(`${API_URL}/schedule-events/deleted`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Site-Id': siteId },
+      });
+      if (!response.ok) return;
+      setDeletedHistory(await response.json());
+    } catch {
+      // 이력 조회 실패는 조용히 무시 (동기화 자체 기능에는 영향 없음)
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUser?.role === 'admin') fetchDeletedHistory();
+  }, [currentUser, fetchDeletedHistory]);
+
+  const handleRestore = async (archiveId) => {
+    if (!window.confirm('이 일정을 복구하시겠습니까?\n다음 "동기화 시작" 실행 시 모바일에도 반영됩니다.')) return;
+    setRestoringId(archiveId);
+    setHistoryError(null);
+    try {
+      const token = localStorage.getItem('ba_token');
+      const siteId = JSON.parse(localStorage.getItem('ba_current_site') || 'null')?.id;
+      const response = await fetch(`${API_URL}/schedule-events/deleted/${archiveId}/restore`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'X-Site-Id': siteId },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '복구 중 오류가 발생했습니다.');
+      await fetchDeletedHistory();
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setRestoringId(null);
+    }
+  };
 
   const handleSync = async () => {
     if (!window.confirm('클라우드 동기화를 시작하시겠습니까?\n데이터 양에 따라 시간이 소요될 수 있습니다.')) return;
@@ -41,6 +83,7 @@ export default function SyncManager({ currentUser }) {
 
       setResults(data.results);
       setLastSyncTime(dayjs().format('YYYY-MM-DD HH:mm:ss'));
+      fetchDeletedHistory();
     } catch (err) {
       if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message.includes('fetch'))) {
         setError(
@@ -139,6 +182,48 @@ export default function SyncManager({ currentUser }) {
           </div>
         </div>
       )}
+
+      {/* 삭제된 일정 이력 (모바일 → 웹 pull-delete 시 남는 스냅샷) */}
+      <div className="bg-surface-container-lowest shadow-sm rounded-xl overflow-hidden border border-outline-variant/20">
+        <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant/20 flex items-center justify-between">
+          <h3 className="font-bold text-sm uppercase tracking-widest text-primary flex items-center gap-2">
+            <span className="material-symbols-outlined">history</span>
+            삭제된 일정 이력
+          </h3>
+          <span className="text-xs font-bold bg-surface-container text-on-surface-variant px-2 py-1 rounded">
+            {deletedHistory.length}건
+          </span>
+        </div>
+
+        {historyError && (
+          <div className="px-6 py-3 text-sm text-error bg-error-container/40">{historyError}</div>
+        )}
+
+        {deletedHistory.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-outline font-body">복구 가능한 삭제 이력이 없습니다.</p>
+        ) : (
+          <div className="divide-y divide-surface-variant/30">
+            {deletedHistory.map((item) => (
+              <div key={item.archive_id} className="px-6 py-4 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm text-on-surface truncate">{item.title}</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    {item.date} · 삭제됨 {dayjs(item.deleted_at).format('YYYY-MM-DD HH:mm')} ({item.deleted_source === 'mobile' ? '모바일' : item.deleted_source})
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRestore(item.archive_id)}
+                  disabled={restoringId === item.archive_id}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="material-symbols-outlined text-sm">restore</span>
+                  {restoringId === item.archive_id ? '복구 중...' : '복구'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 동기화 결과 패널 */}
       {results && (

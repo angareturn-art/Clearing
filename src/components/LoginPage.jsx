@@ -64,7 +64,7 @@ const LoginPage = ({ onLogin }) => {
           <div className="inline-flex items-center justify-center w-20 h-20 bg-white/10 backdrop-blur rounded-2xl mb-4 shadow-xl">
             <span className="material-symbols-outlined text-white text-4xl">architecture</span>
           </div>
-          <h1 className="text-3xl font-black text-white tracking-tight font-headline">The Blueprint Authority</h1>
+          <h1 className="text-3xl font-black text-white tracking-tight font-headline">세대청소 관리</h1>
           <p className="text-white/60 font-body mt-2">건설 현장 통합 관리 시스템</p>
         </div>
 

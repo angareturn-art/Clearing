@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 const MATRIX_TABS = [
   { id: 'oiling',    title: '갱폼 박리제칠', activeClass: 'bg-primary text-white',      indicatorClass: 'bg-primary' },
+  { id: 'slab',      title: '슬라브',        activeClass: 'bg-amber-700 text-white',    indicatorClass: 'bg-amber-700' },
   { id: 'clean1',    title: '1차 세대청소',  activeClass: 'bg-sky-500 text-white',      indicatorClass: 'bg-sky-500' },
   { id: 'clean2',    title: '2차 세대청소',  activeClass: 'bg-success text-white',      indicatorClass: 'bg-success' },
   { id: 'unloading', title: '하역',          activeClass: 'bg-purple-500 text-white',   indicatorClass: 'bg-purple-500' },
@@ -27,6 +28,9 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor }) => {
     if (viewMode === 'oiling') {
       const isOiled = summary.oiling?.some(r => r.building_id === buildingId && r.floor === floor);
       completed = isOiled ? total : 0;
+    } else if (viewMode === 'slab') {
+      const isSlab = summary.slab?.some(r => r.building_id === buildingId && r.floor === floor);
+      completed = isSlab ? total : 0;
     } else {
       validHouses.forEach(h => {
         if (viewMode === 'clean1') {
@@ -88,6 +92,13 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor }) => {
                       } else {
                         bgClass = 'bg-surface-container border border-outline-variant/20';
                       }
+                    } else if (viewMode === 'slab') {
+                      if (completed > 0) {
+                        bgClass = 'bg-amber-700 text-white shadow-sm';
+                        textClass = 'text-white';
+                      } else {
+                        bgClass = 'bg-surface-container border border-outline-variant/20';
+                      }
                     } else if (completed === total) {
                       if (viewMode === 'clean1')          bgClass = 'bg-sky-500 text-white shadow-sm';
                       if (viewMode === 'clean2')          bgClass = 'bg-green-700 text-white shadow-sm';
@@ -107,6 +118,8 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor }) => {
 
                   const limit = viewMode === 'oiling'
                     ? (b.oiling_base_floor || 0)
+                    : viewMode === 'slab'
+                    ? (b.slab_base_floor || 0)
                     : viewMode === 'unloading'
                     ? (b.unloading_base_floor || 0)
                     : (b.cleaning_base_floor || 0);
@@ -117,7 +130,7 @@ const MatrixTable = ({ title, viewMode, buildings, summary, maxFloor }) => {
                       {total > 0 ? (
                         <div className={`mx-auto w-full h-[16px] rounded-[2px] flex items-center justify-center transition-all ${bgClass}`}>
                           <span className={`font-headline text-[8px] ${textClass} font-black`}>
-                            {viewMode === 'oiling' ? total : (completed === total ? total : `${completed}/${total}`)}
+                            {(viewMode === 'oiling' || viewMode === 'slab') ? total : (completed === total ? total : `${completed}/${total}`)}
                           </span>
                         </div>
                       ) : (
@@ -163,7 +176,7 @@ const MatrixStatusView = ({ buildings, summary }) => {
             onClick={() => setActiveTab(t.id)}
             className={`flex-1 py-2 rounded-lg text-[10px] font-black tracking-wide transition-all ${activeTab === t.id ? t.activeClass + ' shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
           >
-            {t.id === 'oiling' ? '박리제칠' : t.id === 'clean1' ? '1차청소' : t.id === 'clean2' ? '2차청소' : '하역'}
+            {t.id === 'oiling' ? '박리제칠' : t.id === 'slab' ? '슬라브' : t.id === 'clean1' ? '1차청소' : t.id === 'clean2' ? '2차청소' : '하역'}
           </button>
         ))}
       </div>
@@ -183,7 +196,7 @@ const MatrixStatusView = ({ buildings, summary }) => {
       </div>
 
       {/* 태블릿 / PC: 그리드 표시 */}
-      <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-4 gap-2">
+      <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-5 gap-2">
         {MATRIX_TABS.map(t => (
           <MatrixTable
             key={t.id}

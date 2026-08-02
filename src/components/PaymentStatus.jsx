@@ -16,6 +16,10 @@ const CONFIG = {
   }
 };
 
+// 슬라브는 오일링/청소와 달리 건물명별 하드코딩 기준층 표가 없다 — buildings prop의
+// slab_base_floor(DB 컬럼)를 그대로 사용한다(CLAUDE.md에서 지적된 하드코딩 안티패턴 방지).
+const MODE_LABELS = { oiling: '박리제칠', slab: '슬라브', cleaning: '세대청소' };
+
 const formatFloorRanges = (floors) => {
   const sorted = [...floors].sort((a, b) => a - b);
   const ranges = [];
@@ -49,11 +53,26 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
   const [monthlyAnalysisByMonth, setMonthlyAnalysisByMonth] = useState({});
   const [loadingMonthly, setLoadingMonthly] = useState(false);
   const [analysisError, setAnalysisError] = useState(null);
+  const [slabPrice, setSlabPrice] = useState(0);
 
-  const config = CONFIG[activeMode];
+  // 슬라브 단가는 하드코딩 관행이 없어 저장된 단가 설정(site_config)에서 불러온다
+  useEffect(() => {
+    if (!currentSite?.id) return;
+    fetch(`${API_URL}/site-config`, {
+      headers: { 'X-Site-Id': currentSite.id, Authorization: `Bearer ${localStorage.getItem('ba_token')}` }
+    })
+      .then(r => r.json())
+      .then(cfg => { if (cfg?.slab_price != null) setSlabPrice(parseInt(cfg.slab_price) || 0); })
+      .catch(() => {});
+  }, [currentSite?.id]);
+
+  // slabPrice가 저장된 값으로 갱신되면(초기 0 -> 실제값) 이미 0원으로 캐시된 월별 데이터를 무효화
+  useEffect(() => { setMonthlyAnalysisByMonth({}); }, [slabPrice]);
+
+  const config = activeMode === 'slab' ? { label: MODE_LABELS.slab, unitPrice: slabPrice } : CONFIG[activeMode];
 
   const availableMonths = useMemo(() => {
-    const records = activeMode === 'oiling' ? summary?.oiling || [] : summary?.cleaning || [];
+    const records = summary?.[activeMode] || [];
     const months = Array.from(new Set(records.filter(r => r?.date).map(r => dayjs(r.date).format('YYYY-MM'))));
     return months.sort((a, b) => b.localeCompare(a));
   }, [summary, activeMode]);
@@ -78,6 +97,7 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
         month,
         oiling_price: String(CONFIG.oiling.unitPrice),
         cleaning_price: String(CONFIG.cleaning.unitPrice),
+        slab_price: String(slabPrice),
         period_mode: 'split'
       });
       const res = await fetch(`${API_URL}/analysis/monthly?${params}`, {
@@ -103,7 +123,7 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
         setAnalysisError(err.message || '월별 정산 데이터 로드 실패');
       })
       .finally(() => setLoadingMonthly(false));
-  }, [availableMonths, currentSite, monthlyAnalysisByMonth]);
+  }, [availableMonths, currentSite, monthlyAnalysisByMonth, slabPrice]);
 
   const getDetailsForMonths = (months) =>
     months.flatMap(month => (monthlyAnalysisByMonth[month]?.[activeMode]?.details || []).filter(r => r.is_billable));
@@ -112,7 +132,7 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
     const months = Object.keys(monthlyAnalysisByMonth).sort((a, b) => b.localeCompare(a));
     return months.map(month => {
       const details = (monthlyAnalysisByMonth[month]?.[activeMode]?.details || []).filter(r => r.is_billable);
-      const households = details.reduce((sum, r) => sum + (activeMode === 'oiling' ? (r.units || 0) : (r.total || 0)), 0);
+      const households = details.reduce((sum, r) => sum + ((activeMode === 'oiling' || activeMode === 'slab') ? (r.units || 0) : (r.total || 0)), 0);
       const amount = details.reduce((sum, r) => sum + (r.amount || 0), 0);
       return { month, households, amount };
     });
@@ -123,9 +143,9 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
 
     return buildings.map(b => {
       const buildingDetails = allDetails.filter(r => r.building_id === b.id || r.building === b.name);
-      const completedTargetHouseholds = buildingDetails.reduce((sum, r) => sum + (activeMode === 'oiling' ? (r.units || 0) : (r.total || 0)), 0);
+      const completedTargetHouseholds = buildingDetails.reduce((sum, r) => sum + ((activeMode === 'oiling' || activeMode === 'slab') ? (r.units || 0) : (r.total || 0)), 0);
       const amount = buildingDetails.reduce((sum, r) => sum + (r.amount || 0), 0);
-      const limit = config.limits[b.name] || 0;
+      const limit = activeMode === 'slab' ? (b.slab_base_floor || 0) : (config.limits[b.name] || 0);
       const totalTargetHouseholds = b.houses.reduce((sum, h) => sum + Math.max(0, h.floors - limit), 0);
       return {
         id: b.id,
@@ -203,13 +223,13 @@ export default function PaymentStatus({ buildings, summary, currentSite }) {
         
         {/* 공정 선택 토글 */}
         <div className="flex bg-surface-container p-1 rounded-xl border border-outline-variant/20 shadow-inner">
-          {Object.entries(CONFIG).map(([mode, cfg]) => (
+          {Object.entries(MODE_LABELS).map(([mode, label]) => (
             <button
               key={mode}
               onClick={() => setActiveMode(mode)}
               className={`px-6 py-2.5 rounded-lg font-label text-xs uppercase font-black transition-all ${activeMode === mode ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:bg-surface-container-high'}`}
             >
-              {cfg.label}
+              {label}
             </button>
           ))}
         </div>
