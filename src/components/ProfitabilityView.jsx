@@ -10,6 +10,8 @@ const monthLabel = (m) => {
   return `${y}년 ${parseInt(mo)}월`;
 };
 
+const ratio = (expense, income) => (income > 0 ? (expense / income) * 100 : 0);
+
 export default function ProfitabilityView({ currentSite }) {
   const [oilingPrice, setOilingPrice] = useState(74000);
   const [cleaningPrice, setCleaningPrice] = useState(74000);
@@ -107,12 +109,13 @@ export default function ProfitabilityView({ currentSite }) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {[
               { label: '누적 총수입', val: data.income_total, color: 'text-primary', bg: 'bg-primary/5' },
-              { label: '누적 인건비 지출', val: data.expense_total, color: 'text-red-600', bg: 'bg-red-50' },
+              { label: '누적 인건비 지출', val: data.expense_total, color: 'text-red-600', bg: 'bg-red-50', ratio: ratio(data.expense_total, data.income_total) },
               { label: '누적 순수익', val: data.net_total, color: data.net_total >= 0 ? 'text-emerald-700' : 'text-red-700', bg: data.net_total >= 0 ? 'bg-emerald-50' : 'bg-red-50' },
             ].map(c => (
               <div key={c.label} className={`${c.bg} rounded-xl p-5 border border-outline-variant/20`}>
                 <p className="text-xs font-bold text-outline uppercase">{c.label}</p>
                 <p className={`text-2xl font-black ${c.color} mt-1`}>{fmt(c.val)}<span className="text-xs ml-1">원</span></p>
+                {c.ratio != null && <p className="text-[11px] font-bold text-red-500 mt-1">수입 대비 {fmt1(c.ratio)}%</p>}
               </div>
             ))}
           </div>
@@ -124,7 +127,7 @@ export default function ProfitabilityView({ currentSite }) {
             </div>
             <table className="w-full text-xs">
               <thead><tr className="bg-surface-dim/10 border-b border-outline-variant/10">
-                {['월', '수입', '인건비 지출', '순익'].map(h => <th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
+                {['월', '수입', '인건비 지출', '인건비 비율', '순익'].map(h => <th key={h} className="px-3 py-2 text-left text-outline font-bold uppercase text-[10px]">{h}</th>)}
               </tr></thead>
               <tbody className="divide-y divide-outline-variant/10">
                 {data.months.map(m => (
@@ -132,6 +135,7 @@ export default function ProfitabilityView({ currentSite }) {
                     <td className="px-3 py-2 font-bold text-primary">{monthLabel(m.month)}</td>
                     <td className="px-3 py-2">{fmt(m.income)}원</td>
                     <td className="px-3 py-2 text-red-600">{fmt(m.expense)}원</td>
+                    <td className="px-3 py-2 text-red-500 font-bold">{fmt1(ratio(m.expense, m.income))}%</td>
                     <td className={`px-3 py-2 font-bold ${m.net >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmt(m.net)}원</td>
                   </tr>
                 ))}
